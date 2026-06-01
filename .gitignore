@@ -1,0 +1,15 @@
+# Node
+node_modules/
+dist/
+
+# Rust / Cargo
+src-tauri/target/
+
+# Tauri generated schemas (regenerated on build)
+src-tauri/gen/schemas/
+
+# macOS
+.DS_Store
+
+# Build output
+build/

@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ccgauge</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <main class="panel">
+      <header class="head">
+        <span class="title">ccgauge</span>
+        <div class="head-right">
+          <span class="last-updated-label">Updated <span id="last-updated">—</span></span>
+          <label class="track-toggle" title="Enable / disable tracking">
+            <input type="checkbox" id="tracking-toggle" checked />
+            <span class="track-slider"></span>
+          </label>
+        </div>
+      </header>
+
+      <!-- Gauge legend -->
+      <div class="gauge-legend">
+        <span class="legend-item"><span class="legend-swatch"></span>Normal</span>
+        <span class="legend-item"><span class="legend-swatch tier-1"></span>Alert 1</span>
+        <span class="legend-item"><span class="legend-swatch tier-2"></span>Alert 2</span>
+        <span class="legend-item"><span class="legend-swatch tier-3"></span>Alert 3</span>
+      </div>
+
+      <!-- 1. Session (5h) -->
+      <section class="block">
+        <div class="block-head">
+          <span>Session (5h)</span>
+        </div>
+        <div id="session-bar" class="bar bar-segmented"></div>
+        <div id="session-sub" class="sub"></div>
+      </section>
+
+      <!-- 2. Weekly -->
+      <section class="block">
+        <div class="block-head">
+          <span>Weekly limit</span>
+        </div>
+        <div id="weekly-bar" class="bar bar-segmented"></div>
+        <div id="weekly-sub" class="sub"></div>
+      </section>
+
+      <!-- 3. Calibration -->
+      <section class="block">
+        <button id="calib-toggle" class="collapse-head">
+          <span>Calibrate</span>
+          <div class="notif-head-right">
+            <span id="calib-status" class="calib-status"></span>
+            <span class="chev">▸</span>
+          </div>
+        </button>
+        <form id="calib-form" class="collapse-body hidden calib">
+          <p class="calib-hint">
+            Each bar needs one anchor. Run <b>/usage</b> in Claude Code and copy its percentages here: this sets what 100% means. Usage then tracks on its own. Leave a field blank to skip it.
+          </p>
+
+          <div class="calib-group">
+            <span class="calib-title">Session (5h)</span>
+            <label>Current session % shown by /usage
+              <input type="number" id="calib-session" min="0" max="100" step="1" placeholder="e.g. 57" />
+            </label>
+          </div>
+
+          <div class="calib-group">
+            <span class="calib-title">Weekly limit</span>
+            <label>Current weekly % shown by /usage
+              <input type="number" id="calib-weekly" min="0" max="100" step="1" placeholder="e.g. 42" />
+            </label>
+            <label>Weekly reset date &amp; time (shown by /usage)
+              <input type="datetime-local" id="calib-reset" />
+            </label>
+          </div>
+
+          <button type="submit" class="primary">Save calibration</button>
+          <span id="calib-msg" class="sub"></span>
+        </form>
+      </section>
+
+      <!-- 4. Notifications (thresholds) -->
+      <section class="block">
+        <button id="notif-toggle" class="collapse-head">
+          <span>System notifications</span>
+          <div class="notif-head-right">
+            <label class="track-toggle" title="Enable / disable system notifications">
+              <input type="checkbox" id="notif-enabled" />
+              <span class="track-slider"></span>
+            </label>
+            <span class="chev">▸</span>
+          </div>
+        </button>
+        <div id="notif-body" class="collapse-body hidden notif">
+          <p class="calib-hint">These three levels drive the tray icon, the bar colours, and the system notification (if enabled) each time session or weekly crosses a level.</p>
+          <div class="calib-group">
+            <span class="calib-title">Alert levels (%)</span>
+            <div class="levels-row">
+              <input type="number" id="notif-level-1" min="0" max="100" step="1" />
+              <input type="number" id="notif-level-2" min="0" max="100" step="1" />
+              <input type="number" id="notif-level-3" min="0" max="100" step="1" />
+            </div>
+          </div>
+          <button type="button" id="notif-save" class="primary">Save notifications</button>
+          <span id="notif-msg" class="sub"></span>
+        </div>
+      </section>
+
+      <hr class="sep" />
+
+      <!-- 5. Open sessions -->
+      <section class="block">
+        <button id="sessions-toggle" class="collapse-head">
+          <span>Open sessions</span><span class="chev">▸</span>
+        </button>
+        <div id="sessions-body" class="collapse-body hidden">
+          <div id="sessions-list" class="sessions"></div>
+        </div>
+      </section>
+
+      <!-- 6. Models used -->
+      <section class="block">
+        <button id="models-toggle" class="collapse-head">
+          <span>Weekly models</span><span class="chev">▸</span>
+        </button>
+        <div id="models-body" class="collapse-body hidden">
+          <div id="models-list" class="models"></div>
+        </div>
+      </section>
+
+      <!-- 7. Memory -->
+      <section class="block">
+        <button id="memory-toggle" class="collapse-head">
+          <span>Memory</span><span class="chev">▸</span>
+        </button>
+        <div id="memory-body" class="collapse-body hidden"></div>
+      </section>
+
+      <hr class="sep" />
+
+      <!-- 8. RTK (greyed out when not installed) -->
+      <section id="rtk-block" class="block">
+        <button id="rtk-toggle" class="collapse-head">
+          <span>RTK</span><span class="chev">▸</span>
+        </button>
+        <div id="rtk-body" class="collapse-body hidden">
+          <div id="rtk-content"></div>
+        </div>
+      </section>
+
+      <footer class="foot">
+        <span class="foot-text">All figures are computed locally from your <code>~/.claude</code> files: <b>nothing is ever sent anywhere.</b> Percentages are estimates, so expect a small margin versus Claude Code's <b>/usage</b>.</span>
+        <div class="foot-brand">
+          <img src="/src/assets/app-icon.png" alt="ccgauge" class="foot-logo" />
+          <span id="app-version" class="foot-version"></span>
+        </div>
+      </footer>
+    </main>
+  </body>
+</html>
