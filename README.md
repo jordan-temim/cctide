@@ -195,6 +195,29 @@ npm install
 npm run tauri dev      # hot-reload dev build
 ```
 
+### Commit convention
+
+This project follows [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+<type>(<optional scope>): <description>
+```
+
+| Type | When |
+|---|---|
+| `feat` | New user-facing feature |
+| `fix` | Bug fix |
+| `ci` | CI/CD workflow changes |
+| `docs` | Documentation only |
+| `refactor` | Code change with no behaviour change |
+| `test` | Adding or updating tests |
+| `chore` | Maintenance with no dedicated type |
+| `style` | Formatting only (rustfmt, etc.) |
+| `build` | Build system / dependencies |
+| `perf` | Performance improvement |
+
+Examples: `feat: add weekly models breakdown` · `fix(scan): dedupe by message id` · `ci: bump actions to node 24`
+
 ### Project layout
 
 ```
