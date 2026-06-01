@@ -23,6 +23,10 @@ Track your session and weekly quota, open sessions' context windows, project mem
 
 All data is read directly from `~/.claude`.
 
+<p align="center">
+  <img src="docs/overview.png" width="380" />
+</p>
+
 ---
 
 ## What it shows
