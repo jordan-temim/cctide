@@ -16,8 +16,8 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_notification::NotificationExt;
-use tauri_plugin_updater::UpdaterExt;
 use tauri_plugin_positioner::{Position, WindowExt};
+use tauri_plugin_updater::UpdaterExt;
 
 use config::{Calibration, Config};
 use notify::NotifyState;
@@ -364,8 +364,12 @@ pub fn run() {
             // Background update check: download silently, notify when ready.
             let update_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let Ok(updater) = update_handle.updater() else { return };
-                let Ok(Some(update)) = updater.check().await else { return };
+                let Ok(updater) = update_handle.updater() else {
+                    return;
+                };
+                let Ok(Some(update)) = updater.check().await else {
+                    return;
+                };
                 let version = update.version.clone();
                 if update.download_and_install(|_, _| {}, || {}).await.is_ok() {
                     let _ = update_handle
