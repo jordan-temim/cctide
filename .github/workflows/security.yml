@@ -34,8 +34,8 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           manifest-path: src-tauri/Cargo.toml
-          config: deny.toml
           command: check licenses sources bans
+          arguments: --config deny.toml
 
   npm-audit:
     name: npm audit
