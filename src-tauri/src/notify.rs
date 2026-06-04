@@ -103,7 +103,11 @@ impl NotifyState {
             if !self.recal_session_sent && c1.budget > 0.0 {
                 let k1 = c1.budget * (c1.percent / 100.0);
                 if (session_tokens - k1) / c1.budget >= 0.25 {
-                    notify(app, "cctide", "Calibrate one final time for better accuracy.");
+                    notify(
+                        app,
+                        "cctide",
+                        "Calibrate one final time for better accuracy.",
+                    );
                     self.recal_session_sent = true;
                 }
             }
@@ -115,7 +119,11 @@ impl NotifyState {
             if !self.recal_weekly_sent && c1.budget > 0.0 {
                 let k1 = c1.budget * (c1.percent / 100.0);
                 if (weekly_tokens - k1) / c1.budget >= 0.25 {
-                    notify(app, "cctide", "Calibrate one final time for better accuracy.");
+                    notify(
+                        app,
+                        "cctide",
+                        "Calibrate one final time for better accuracy.",
+                    );
                     self.recal_weekly_sent = true;
                 }
             }

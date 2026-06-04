@@ -61,8 +61,12 @@ pub fn read_memory(cache: &ScanCache, cwds: &[String]) -> Vec<MemoryFile> {
         for path in files {
             // Resolve the real path and verify it stays inside the memory dir.
             // This blocks symlinks that point outside `~/.claude/projects/*/memory/`.
-            let Ok(canon) = path.canonicalize() else { continue };
-            let Ok(canon_dir) = dir.canonicalize() else { continue };
+            let Ok(canon) = path.canonicalize() else {
+                continue;
+            };
+            let Ok(canon_dir) = dir.canonicalize() else {
+                continue;
+            };
             if !canon.starts_with(&canon_dir) {
                 continue;
             }

@@ -102,8 +102,11 @@ pub fn session_usage(points: &[Point], cfg: &Config, now: i64) -> SessionUsage {
         None => 0.0,
     };
 
-    let (percent, calibrated) =
-        percent_from(weighted, &cfg.session_calibration, &cfg.session_calibration_2);
+    let (percent, calibrated) = percent_from(
+        weighted,
+        &cfg.session_calibration,
+        &cfg.session_calibration_2,
+    );
     SessionUsage {
         window_start,
         reset_at,
@@ -152,7 +155,6 @@ pub fn week_window_from_reset(reset_date: &str, now: i64) -> Option<(i64, i64)> 
     // reset is the next upcoming reset; reset − 7d is the most recent past reset.
     Some((reset - WEEK_SECS, reset))
 }
-
 
 /// Weekly limit.
 pub fn weekly_usage(points: &[Point], cfg: &Config, now: i64) -> WeeklyUsage {
@@ -455,13 +457,12 @@ mod tests {
         let now = 1_000_000i64;
         // Derive the window boundaries so points can be placed precisely.
         let reset_date = "1970-01-15";
-        let (ws, _) =
-            week_window_from_reset(reset_date, now).expect("test date should parse");
+        let (ws, _) = week_window_from_reset(reset_date, now).expect("test date should parse");
         let points = vec![
-            pt(ws - 1, 99.0),       // before window — excluded
-            pt(ws, 100.0),          // at window start — included
-            pt(ws + 1000, 200.0),   // inside window — included
-            pt(now + 1, 50.0),      // future — excluded
+            pt(ws - 1, 99.0),     // before window — excluded
+            pt(ws, 100.0),        // at window start — included
+            pt(ws + 1000, 200.0), // inside window — included
+            pt(now + 1, 50.0),    // future — excluded
         ];
         let cfg = Config {
             weekly_reset_date: Some(reset_date.to_string()),
@@ -477,8 +478,7 @@ mod tests {
     fn weekly_usage_with_calibration_computes_percent() {
         let now = 1_000_000i64;
         let reset_date = "1970-01-15";
-        let (ws, _) =
-            week_window_from_reset(reset_date, now).expect("test date should parse");
+        let (ws, _) = week_window_from_reset(reset_date, now).expect("test date should parse");
         let points = vec![pt(ws, 100.0)];
         let cfg = Config {
             weekly_reset_date: Some(reset_date.to_string()),

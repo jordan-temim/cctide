@@ -141,7 +141,12 @@ fn sample(
                     return if g.mono {
                         [0.0, 0.0, 0.0, 0.0] // transparent gap
                     } else {
-                        [g.track[0] as f64, g.track[1] as f64, g.track[2] as f64, 255.0]
+                        [
+                            g.track[0] as f64,
+                            g.track[1] as f64,
+                            g.track[2] as f64,
+                            255.0,
+                        ]
                     };
                 }
             }

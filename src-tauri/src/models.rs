@@ -318,7 +318,10 @@ mod tests {
         let haiku3 = models.entry_for("claude-haiku-3-20251001");
         let haiku = models.entry_for("claude-haiku-4-5");
         // haiku-3 has input=0.8; generic haiku has input=1.0
-        assert!((haiku3.input - 0.8).abs() < 1e-9, "expected haiku-3 pricing");
+        assert!(
+            (haiku3.input - 0.8).abs() < 1e-9,
+            "expected haiku-3 pricing"
+        );
         assert!((haiku.input - 1.0).abs() < 1e-9, "expected haiku pricing");
     }
 }
