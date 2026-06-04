@@ -34,7 +34,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny
-      - run: cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml check licenses sources bans
+      - run: cargo deny --manifest-path src-tauri/Cargo.toml check --config deny.toml licenses sources bans
 
   npm-audit:
     name: npm audit
