@@ -31,11 +31,10 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v5
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: taiki-e/install-action@v2
         with:
-          manifest-path: src-tauri/Cargo.toml
-          config: deny.toml
-          command: check licenses sources bans
+          tool: cargo-deny
+      - run: cargo deny --manifest-path src-tauri/Cargo.toml check --config deny.toml licenses sources bans
 
   npm-audit:
     name: npm audit

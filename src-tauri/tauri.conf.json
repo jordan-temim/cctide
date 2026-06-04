@@ -30,6 +30,14 @@
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'"
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEMwQjQ3MkQ2MTRCRDJDNkIKUldSckxMMFUxbkswd0VUNmZSZ3JBTmxqb0puaHpEV016Qm1rRlZKdFZxVTlBMjVPbDNDbGNZR1QK",
+      "endpoints": [
+        "https://github.com/jordan-temim/cctide/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

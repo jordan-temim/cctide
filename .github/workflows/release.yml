@@ -31,12 +31,17 @@ jobs:
       - run: npm ci
 
       - name: Build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build -- --target universal-apple-darwin
 
       - uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
-          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          path: |
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg.sig
           if-no-files-found: error
 
   build-win:
@@ -59,12 +64,17 @@ jobs:
       - run: npm ci
 
       - name: Build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build -- --bundles msi
 
       - uses: actions/upload-artifact@v4
         with:
           name: windows-msi
-          path: src-tauri/target/release/bundle/msi/*.msi
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/msi/*.msi.sig
           if-no-files-found: error
 
   release:
@@ -77,6 +87,29 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+
+      - name: Generate latest.json
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          DMG_NAME=$(ls artifacts/*.dmg | xargs basename)
+          DMG_SIG=$(cat artifacts/*.dmg.sig)
+          MSI_NAME=$(ls artifacts/*.msi | xargs basename)
+          MSI_SIG=$(cat artifacts/*.msi.sig)
+          jq -n \
+            --arg version "$VERSION" \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg dmg_url "https://github.com/jordan-temim/cctide/releases/download/$VERSION/$DMG_NAME" \
+            --arg dmg_sig "$DMG_SIG" \
+            --arg msi_url "https://github.com/jordan-temim/cctide/releases/download/$VERSION/$MSI_NAME" \
+            --arg msi_sig "$MSI_SIG" \
+            '{
+              version: $version,
+              pub_date: $pub_date,
+              platforms: {
+                "darwin-universal": { url: $dmg_url, signature: $dmg_sig },
+                "windows-x86_64": { url: $msi_url, signature: $msi_sig }
+              }
+            }' > artifacts/latest.json
 
       - uses: softprops/action-gh-release@v2
         with:

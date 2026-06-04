@@ -79,10 +79,12 @@ npm run build:mac
 Output: `build/cctide-*-universal.dmg`
 
 1. Open the `.dmg`, drag **cctide** into `/Applications`.
-2. First launch: right-click → **Open**, or run once:
-   ```sh
-   xattr -dr com.apple.quarantine /Applications/cctide.app
-   ```
+2. First launch — Gatekeeper will block the app (unsigned build). Two ways to allow it:
+   - **System Settings → Privacy & Security → Security** (scroll down) → **Open Anyway**
+   - **Terminal:**
+     ```sh
+     xattr -dr com.apple.quarantine /Applications/cctide.app
+     ```
 3. The icon appears in the **menu bar** (top right). Click to open.
 
 #### Windows 10 / 11
