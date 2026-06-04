@@ -1,15 +1,15 @@
-# ccgauge
+# cctide
 
 <p align="center">
   <img src="docs/app-icon-master.png" width="96" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/jordan-temim/ccgauge/actions/workflows/security.yml"><img src="https://github.com/jordan-temim/ccgauge/actions/workflows/security.yml/badge.svg" alt="Security" /></a>
-  <a href="https://github.com/jordan-temim/ccgauge/actions/workflows/lint.yml"><img src="https://github.com/jordan-temim/ccgauge/actions/workflows/lint.yml/badge.svg" alt="Lint" /></a>
+  <a href="https://github.com/jordan-temim/cctide/actions/workflows/security.yml"><img src="https://github.com/jordan-temim/cctide/actions/workflows/security.yml/badge.svg" alt="Security" /></a>
+  <a href="https://github.com/jordan-temim/cctide/actions/workflows/lint.yml"><img src="https://github.com/jordan-temim/cctide/actions/workflows/lint.yml/badge.svg" alt="Lint" /></a>
   <img src="https://img.shields.io/badge/version-0.1.0-blue" alt="Version" />
-  <a href="https://github.com/jordan-temim/ccgauge/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License" /></a>
-  <a href="https://github.com/jordan-temim/ccgauge/releases"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey" alt="Platform" /></a>
+  <a href="https://github.com/jordan-temim/cctide/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License" /></a>
+  <a href="https://github.com/jordan-temim/cctide/releases"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey" alt="Platform" /></a>
   <a href="https://tauri.app"><img src="https://img.shields.io/badge/built%20with-Tauri%20v2-24C8DB" alt="Built with Tauri v2" /></a>
   <a href="#no-credentials-ever"><img src="https://img.shields.io/badge/network-100%25%20local-brightgreen" alt="No network" /></a>
 </p>
@@ -44,6 +44,8 @@ All data is read directly from `~/.claude`.
 
 The session and weekly bars are **15-segment fuel gauges**. The tray icon is live: two C-shapes fill with session (left) and weekly (right) usage. On macOS they blink at an escalating rate as levels are crossed. On Windows each C is tinted green → orange → red.
 
+Every 30 seconds, when cctide re-reads the local JSONL files, a small notch briefly sweeps both C arcs — a visual confirmation that the data just refreshed. The notch is a transparent gap on macOS and a grey dip on Windows; it completes in about 2 seconds and has no effect on the displayed values.
+
 ---
 
 ## Installation
@@ -63,12 +65,12 @@ npm install
 npm run build:mac
 ```
 
-Output: `build/ccgauge-*-universal.dmg`
+Output: `build/cctide-*-universal.dmg`
 
-1. Open the `.dmg`, drag **ccgauge** into `/Applications`.
+1. Open the `.dmg`, drag **cctide** into `/Applications`.
 2. First launch: right-click → **Open**, or run once:
    ```sh
-   xattr -dr com.apple.quarantine /Applications/ccgauge.app
+   xattr -dr com.apple.quarantine /Applications/cctide.app
    ```
 3. The icon appears in the **menu bar** (top right). Click to open.
 
@@ -81,10 +83,42 @@ npm install
 npm run build:win
 ```
 
-Output: `build\ccgauge-*.msi`
+Output: `build\cctide-*.msi`
 
 1. Run the installer. SmartScreen may show "unknown publisher" → **More info** → **Run anyway**.
 2. The icon appears in the **system tray** (bottom right). Click to open.
+
+---
+
+## Uninstall
+
+### macOS
+
+Drag **cctide** from `/Applications` to the Trash — that removes the app.
+
+To also remove the config file (calibration anchors, alert levels):
+
+```sh
+rm -rf ~/Library/Application\ Support/com.cctide
+```
+
+To remove the notification entry, go to **System Settings → Notifications**, find **cctide**, and delete it.
+
+### Windows
+
+Go to **Settings → Apps**, search for **cctide**, and click **Uninstall**. The MSI uninstaller removes the app and its registry entries automatically.
+
+To also remove the config file:
+
+```
+%APPDATA%\com.cctide\
+```
+
+Delete that folder manually in Explorer or with:
+
+```powershell
+Remove-Item -Recurse -Force "$env:APPDATA\com.cctide"
+```
 
 ---
 
@@ -92,15 +126,24 @@ Output: `build\ccgauge-*.msi`
 
 <p align="center"><img src="docs/calibration.png" width="287" /></p>
 
-ccgauge reconstructs your quota locally from token weights, so it needs one anchor point to know what 100% means:
+cctide reconstructs your quota locally from token weights. Two calibration points per bar are required for best accuracy — they let cctide fit a line through your actual usage rather than assuming a fixed origin.
 
+**Step 1 — first calibration:**
 1. In Claude Code, run `/usage` and note your **session %**, **weekly %**, and **weekly reset date**.
-2. In ccgauge, open **Calibrate** (a ● indicator means it's pending), enter those values, and click **Save**. The indicator turns ✓ when done.
-3. That's it. Re-calibrate only if you change plans or notice real drift.
+2. In cctide, open **Calibrate** (● means pending), enter those values, and click **Save**. The label reads "First calibration" and cctide starts tracking.
+
+> **Reset date tip:** enter the date exactly as shown by `/usage` — past or future, any format accepted (`YYYY-MM-DD` or `YYYY-MM-DDTHH:MM`). If the date is in the future (e.g. your next upcoming reset), cctide automatically computes the current window by stepping back in 7-day increments.
+
+**Step 2 — second calibration (triggered by cctide):**
+
+3. When enough usage has accumulated (≈ 25 percentage-points later), cctide sends a system notification: *"Calibrate one final time for better accuracy."*
+4. Run `/usage` again in Claude Code, enter the new percentages in cctide, and click **Save**. The indicator turns ✓ and the two-point linear fit activates.
+
+After that, no further action is needed. If you change plans, start over from step 1.
 
 ### Plan-agnostic design
 
-You don't tell ccgauge which plan you're on (Pro / Max 5× / Max 20×), and it never stores one.
+You don't tell cctide which plan you're on (Pro / Max 5× / Max 20×), and it never stores one.
 
 The budget is derived from the % you report:
 
@@ -108,7 +151,7 @@ The budget is derived from the % you report:
 budget = tokens_so_far / (your_% / 100)
 ```
 
-This automatically captures your plan's actual quota size — Pro users get a smaller budget, Max users a larger one, from the exact same calibration step. Per-model pricing ratios and the window mechanics (rolling 5h session, weekly reset) are identical across plans. If you switch plans, re-calibrate once.
+This automatically captures your plan's actual quota size — Pro users get a smaller budget, Max users a larger one, from the exact same calibration steps. Per-model pricing ratios and the window mechanics (rolling 5h session, weekly reset) are identical across plans. If you switch plans, start the two-step calibration over.
 
 ### How consumption is weighted
 
@@ -116,11 +159,11 @@ Tokens are weighted by Anthropic's published per-model pricing (input / output /
 
 The weights live in `models.json` at the app root (compiled into the binary; nothing is written to `~/.claude`). Edit it and rebuild if pricing changes. Only the ratios matter — calibration absorbs the absolute scale.
 
-> **Why the estimate is stable:** with cache reads excluded and the budget derived from your reported %, a single calibration should hold for weeks. Expect a small margin (1–5%) versus `/usage` — this is normal calibration drift. The segmented bar display absorbs that margin visually.
+> **Why two points?** A single-point calibration assumes the relationship between local tokens and Anthropic's metering passes through zero. In practice there is a small constant offset. The two-point fit (`percent = a·tokens + b`) corrects for both scale error and offset, keeping the displayed % within ~1–2% of `/usage` after calibration.
 
 ### Context window
 
-The "Open sessions" panel shows each active Claude Code process and how full its context window is. Claude Code uses an effective **200k-token context** for all current models, regardless of a model's theoretical maximum. ccgauge uses that same 200k as its denominator, so the percentage aligns with what `/context` shows in Claude Code.
+The "Open sessions" panel shows each active Claude Code process and how full its context window is. Claude Code uses an effective **200k-token context** for all current models, regardless of a model's theoretical maximum. cctide uses that same 200k as its denominator, so the percentage aligns with what `/context` shows in Claude Code.
 
 ---
 
@@ -140,17 +183,17 @@ The icon reacts independently of the notifications toggle.
 
 ## No credentials, ever
 
-**ccgauge makes zero network requests.** Most Claude usage trackers need a credential to query the API on your behalf — a browser session cookie extracted from DevTools, a session key stored in the system Keychain, or an OAuth token read from disk. That credential can expire, be revoked, or be accidentally exposed.
+**cctide makes zero network requests.** Most Claude usage trackers need a credential to query the API on your behalf — a browser session cookie extracted from DevTools, a session key stored in the system Keychain, or an OAuth token read from disk. That credential can expire, be revoked, or be accidentally exposed.
 
-ccgauge takes a different approach: it reads the JSONL transcripts that Claude Code writes locally to `~/.claude`, and computes everything in-process. No cookie, no token, no Keychain entry, no API call — there is nothing to leak or rotate.
+cctide takes a different approach: it reads the JSONL transcripts that Claude Code writes locally to `~/.claude`, and computes everything in-process. No cookie, no token, no Keychain entry, no API call — there is nothing to leak or rotate.
 
-The trade-off: because ccgauge never queries Anthropic's servers, the session and weekly percentages require a one-time manual calibration from `/usage`. After that, they track automatically.
+The trade-off: because cctide never queries Anthropic's servers, the session and weekly percentages require a one-time manual calibration from `/usage`. After that, they track automatically.
 
 ---
 
 ## Privacy
 
-ccgauge is **100% local**. It reads `~/.claude` files on disk and renders everything in-process. No data is sent anywhere, no network request is ever made, no analytics are collected.
+cctide is **100% local**. It reads `~/.claude` files on disk and renders everything in-process. No data is sent anywhere, no network request is ever made, no analytics are collected.
 
 ---
 
@@ -158,7 +201,7 @@ ccgauge is **100% local**. It reads `~/.claude` files on disk and renders everyt
 
 ### Architecture
 
-ccgauge is built with **[Tauri v2](https://tauri.app)**: a Rust backend embedded in a native OS window, with a lightweight web frontend (Vite + vanilla TypeScript). There is no server, no runtime dependency, and no Electron-style bundled browser — the OS webview renders the UI.
+cctide is built with **[Tauri v2](https://tauri.app)**: a Rust backend embedded in a native OS window, with a lightweight web frontend (Vite + vanilla TypeScript). There is no server, no runtime dependency, and no Electron-style bundled browser — the OS webview renders the UI.
 
 **Backend (Rust — `src-tauri/src/`):**
 

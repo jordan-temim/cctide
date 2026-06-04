@@ -1,4 +1,4 @@
-// Generates the ccgauge icons with zero dependencies (pure Node + zlib).
+// Generates the cctide icons with zero dependencies (pure Node + zlib).
 //
 // Concept: "CC" (Claude Code), where each C is a gauge — a C is just an arc, so
 // we fill part of it (terracotta) with a radial tick at the fill level, the

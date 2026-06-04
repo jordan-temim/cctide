@@ -1,6 +1,6 @@
 //! Persisted application configuration.
 //!
-//! Stored in `<os-config-dir>/com.ccgauge/ccgauge.json`. Holds the calibration
+//! Stored in `<os-config-dir>/com.cctide/cctide.json`. Holds the calibration
 //! anchors (5h session and weekly), the weekly reset date, and settings for
 //! weighting / context limits / refresh interval.
 
@@ -20,12 +20,19 @@ pub struct Calibration {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// Calibration for the 5h session window.
+    /// Calibration for the 5h session window (most recent point).
     #[serde(default)]
     pub session_calibration: Option<Calibration>,
-    /// Calibration for the weekly limit.
+    /// Previous session calibration point; together with `session_calibration`
+    /// enables a two-point linear fit (`percent = a·tokens + b`).
+    #[serde(default)]
+    pub session_calibration_2: Option<Calibration>,
+    /// Calibration for the weekly limit (most recent point).
     #[serde(default)]
     pub weekly_calibration: Option<Calibration>,
+    /// Previous weekly calibration point for the two-point linear fit.
+    #[serde(default)]
+    pub weekly_calibration_2: Option<Calibration>,
     /// Weekly reset date in ISO format `YYYY-MM-DD` (entered by the user).
     #[serde(default)]
     pub weekly_reset_date: Option<String>,
@@ -87,7 +94,9 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             session_calibration: None,
+            session_calibration_2: None,
             weekly_calibration: None,
+            weekly_calibration_2: None,
             weekly_reset_date: None,
             context_limits: HashMap::new(),
             refresh_secs: 30,
@@ -101,13 +110,13 @@ impl Default for Config {
 
 /// The app's own data directory, derived from the bundle identifier — mirrors
 /// Tauri's `app_config_dir` without needing an `AppHandle`:
-/// macOS `~/Library/Application Support/com.ccgauge`, Windows
-/// `%APPDATA%\com.ccgauge`, Linux `~/.config/com.ccgauge`.
-const APP_DIR: &str = "com.ccgauge";
+/// macOS `~/Library/Application Support/com.cctide`, Windows
+/// `%APPDATA%\com.cctide`, Linux `~/.config/com.cctide`.
+const APP_DIR: &str = "com.cctide";
 
-/// Current config path: `<os-config-dir>/com.ccgauge/ccgauge.json`.
+/// Current config path: `<os-config-dir>/com.cctide/cctide.json`.
 pub fn config_path() -> Option<PathBuf> {
-    Some(dirs::config_dir()?.join(APP_DIR).join("ccgauge.json"))
+    Some(dirs::config_dir()?.join(APP_DIR).join("cctide.json"))
 }
 
 fn parse_config(text: &str) -> Config {
@@ -138,7 +147,10 @@ pub fn save(cfg: &Config) -> Result<(), String> {
     let text = serde_json::to_string_pretty(cfg).map_err(|e| e.to_string())?;
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, &text).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    std::fs::rename(&tmp, &path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        e.to_string()
+    })
 }
 
 #[cfg(test)]
@@ -248,5 +260,31 @@ mod tests {
         let text = serde_json::to_string(&cfg).unwrap();
         let parsed = super::parse_config(&text);
         assert_eq!(parsed.refresh_secs, 30);
+    }
+
+    #[test]
+    fn parse_config_invalid_json_returns_default() {
+        let cfg = super::parse_config("not valid json {{{");
+        assert_eq!(cfg.refresh_secs, 30);
+        assert_eq!(cfg.alert_levels, vec![33.0, 66.0, 90.0]);
+        assert!(cfg.notifications_enabled);
+    }
+
+    #[test]
+    fn parse_config_calibration_round_trips() {
+        let original = Config {
+            session_calibration: Some(Calibration {
+                percent: 42.0,
+                budget: 1234.5,
+                calibrated_at: 1_000_000,
+            }),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed = super::parse_config(&json);
+        let cal = parsed.session_calibration.unwrap();
+        assert!((cal.percent - 42.0).abs() < 1e-9);
+        assert!((cal.budget - 1234.5).abs() < 1e-9);
+        assert_eq!(cal.calibrated_at, 1_000_000);
     }
 }

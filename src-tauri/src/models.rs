@@ -302,4 +302,26 @@ mod tests {
         let limit = m().context_limit_for("claude-sonnet-4-6", &overrides);
         assert_eq!(limit, 999_000);
     }
+
+    #[test]
+    fn quota_units_cache_write_1h_contributes() {
+        // sonnet: cache_write_1h = 6.0; confirm it is charged separately from 5m writes.
+        let no_1h = m().quota_units("claude-sonnet-4-6", 0, 0, 0, 0);
+        let with_1h = m().quota_units("claude-sonnet-4-6", 0, 0, 0, 1_000);
+        assert!((with_1h - no_1h - 1_000.0 * 6.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn haiku3_longer_match_beats_generic_haiku() {
+        // "haiku-3" key (len 7) must beat "haiku" (len 5) for a haiku-3 model id.
+        let models = m();
+        let haiku3 = models.entry_for("claude-haiku-3-20251001");
+        let haiku = models.entry_for("claude-haiku-4-5");
+        // haiku-3 has input=0.8; generic haiku has input=1.0
+        assert!(
+            (haiku3.input - 0.8).abs() < 1e-9,
+            "expected haiku-3 pricing"
+        );
+        assert!((haiku.input - 1.0).abs() < 1e-9, "expected haiku pricing");
+    }
 }

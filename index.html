@@ -4,14 +4,14 @@
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ccgauge</title>
+    <title>cctide</title>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
 
   <body>
     <main class="panel">
       <header class="head">
-        <span class="title">ccgauge</span>
+        <span class="title">cctide</span>
         <div class="head-right">
           <span class="last-updated-label">Updated <span id="last-updated">—</span></span>
           <label class="track-toggle" title="Enable / disable tracking">
@@ -32,7 +32,7 @@
       <!-- 1. Session (5h) -->
       <section class="block">
         <div class="block-head">
-          <span>Session (5h)</span>
+          <span>Session (5h)</span><span id="dbg-session" class="dbg-pct"></span>
         </div>
         <div id="session-bar" class="bar bar-segmented"></div>
         <div id="session-sub" class="sub"></div>
@@ -41,7 +41,7 @@
       <!-- 2. Weekly -->
       <section class="block">
         <div class="block-head">
-          <span>Weekly limit</span>
+          <span>Weekly limit</span><span id="dbg-weekly" class="dbg-pct"></span>
         </div>
         <div id="weekly-bar" class="bar bar-segmented"></div>
         <div id="weekly-sub" class="sub"></div>
@@ -57,25 +57,23 @@
           </div>
         </button>
         <form id="calib-form" class="collapse-body hidden calib">
-          <p class="calib-hint">
-            Each bar needs one anchor. Run <b>/usage</b> in Claude Code and copy its percentages here: this sets what 100% means. Usage then tracks on its own. Leave a field blank to skip it.
+          <p id="calib-hint" class="calib-hint">
+            Two calibrations per bar are needed. Run <b>/usage</b> in Claude Code and enter the percentages — cctide will notify you when it's time for the second one.
           </p>
 
-          <div class="calib-group">
-            <span class="calib-title">Session (5h)</span>
-            <label>Current session % shown by /usage
+          <div class="calib-grid">
+            <div class="calib-col">
+              <span id="calib-label-session" class="calib-title">First — Session (5h)</span>
               <input type="number" id="calib-session" min="0" max="100" step="1" placeholder="e.g. 57" />
-            </label>
-          </div>
-
-          <div class="calib-group">
-            <span class="calib-title">Weekly limit</span>
-            <label>Current weekly % shown by /usage
+            </div>
+            <div class="calib-col">
+              <span id="calib-label-weekly" class="calib-title">First — Weekly limit</span>
               <input type="number" id="calib-weekly" min="0" max="100" step="1" placeholder="e.g. 42" />
-            </label>
-            <label>Weekly reset date &amp; time (shown by /usage)
+            </div>
+            <div class="calib-col calib-col-full">
+              <span class="calib-title">Weekly reset date &amp; time</span>
               <input type="datetime-local" id="calib-reset" />
-            </label>
+            </div>
           </div>
 
           <button type="submit" class="primary">Save calibration</button>
@@ -155,7 +153,9 @@
       <footer class="foot">
         <span class="foot-text">All figures are computed locally from your <code>~/.claude</code> files: <b>nothing is ever sent anywhere.</b> Percentages are estimates, so expect a small margin versus Claude Code's <b>/usage</b>.</span>
         <div class="foot-brand">
-          <img src="/src/assets/app-icon.png" alt="ccgauge" class="foot-logo" />
+          <a href="https://github.com/jordan-temim/cctide" target="_blank" rel="noopener noreferrer" class="foot-logo-link">
+            <img src="/src/assets/app-icon.png" alt="cctide on GitHub" class="foot-logo" />
+          </a>
           <span id="app-version" class="foot-version"></span>
         </div>
       </footer>

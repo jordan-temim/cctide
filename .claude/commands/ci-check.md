@@ -13,7 +13,13 @@ cd src-tauri && cargo fmt --all
 ```
 Always auto-fixes. Verify with `cargo fmt --all -- --check`. Report if still dirty.
 
-### 2. cargo clippy
+### 2. cargo test
+```
+cd src-tauri && cargo test
+```
+Report any failures with test name and output.
+
+### 3. cargo clippy
 ```
 cd src-tauri && cargo clippy --all-targets -- -D warnings
 ```
@@ -66,6 +72,7 @@ Print a summary table at the end:
 | Check | Status | Notes |
 |---|---|---|
 | cargo fmt | ✅ / ✅ auto-fixed / ❌ | |
+| cargo test | ✅ / ❌ | test name if failures |
 | cargo clippy | ✅ / ✅ auto-fixed / ❌ | file:line if errors |
 | tsc | ✅ / ❌ | file:line if errors |
 | cargo audit | ✅ (N warns) | expected GTK3 warns OK |
