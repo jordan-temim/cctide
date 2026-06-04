@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/jordan-temim/cctide/actions/workflows/security.yml"><img src="https://github.com/jordan-temim/cctide/actions/workflows/security.yml/badge.svg" alt="Security" /></a>
   <a href="https://github.com/jordan-temim/cctide/actions/workflows/lint.yml"><img src="https://github.com/jordan-temim/cctide/actions/workflows/lint.yml/badge.svg" alt="Lint" /></a>
-  <img src="https://img.shields.io/badge/version-0.1.0-blue" alt="Version" />
+  <a href="https://github.com/jordan-temim/cctide/releases/latest"><img src="https://img.shields.io/github/v/release/jordan-temim/cctide" alt="Latest release" /></a>
   <a href="https://github.com/jordan-temim/cctide/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License" /></a>
   <a href="https://github.com/jordan-temim/cctide/releases"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey" alt="Platform" /></a>
   <a href="https://tauri.app"><img src="https://img.shields.io/badge/built%20with-Tauri%20v2-24C8DB" alt="Built with Tauri v2" /></a>
@@ -51,10 +51,21 @@ Every 30 seconds, when cctide re-reads the local JSONL files, a small notch brie
 ## Installation
 
 > Builds are **unsigned** (no code-signing certificate). The OS will warn you on first launch — this is expected.
->
-> There are no pre-built releases — build from source using the instructions below.
 
-### macOS — universal build (Intel + Apple Silicon)
+### Download a pre-built release
+
+Pre-built binaries are available on the [**Releases page**](https://github.com/jordan-temim/cctide/releases/latest):
+
+| Platform | File |
+|---|---|
+| macOS (Intel + Apple Silicon) | `cctide-*-universal.dmg` |
+| Windows 10 / 11 | `cctide-*.msi` |
+
+Skip to the platform section below for first-launch instructions.
+
+### Build from source
+
+#### macOS — universal build (Intel + Apple Silicon)
 
 Prerequisites: Xcode Command Line Tools, Rust with both Apple targets.
 
@@ -74,7 +85,7 @@ Output: `build/cctide-*-universal.dmg`
    ```
 3. The icon appears in the **menu bar** (top right). Click to open.
 
-### Windows 10 / 11
+#### Windows 10 / 11
 
 Prerequisites: [Build Tools for Visual Studio](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (MSVC toolchain), [Node.js](https://nodejs.org), [Rust](https://rustup.rs).
 

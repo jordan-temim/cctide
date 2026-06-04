@@ -64,7 +64,7 @@ function cHit(px, py, c, R, T, template) {
 }
 
 function roundedRect(px, py, W, H) {
-  const m = 0.06 * W;
+  const m = 0;
   const rad = 0.22 * W;
   const x0 = m,
     y0 = m,
