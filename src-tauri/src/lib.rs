@@ -16,6 +16,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_notification::NotificationExt;
+use tauri_plugin_updater::UpdaterExt;
 use tauri_plugin_positioner::{Position, WindowExt};
 
 use config::{Calibration, Config};
@@ -282,6 +283,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState {
             cache: Mutex::new(ScanCache::default()),
             notify_state: Mutex::new(NotifyState::default()),
@@ -358,6 +360,22 @@ pub fn run() {
             ) {
                 let _ = app.notification().request_permission();
             }
+
+            // Background update check: download silently, notify when ready.
+            let update_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let Ok(updater) = update_handle.updater() else { return };
+                let Ok(Some(update)) = updater.check().await else { return };
+                let version = update.version.clone();
+                if update.download_and_install(|_, _| {}, || {}).await.is_ok() {
+                    let _ = update_handle
+                        .notification()
+                        .builder()
+                        .title("cctide updated")
+                        .body(format!("v{version} ready — quit and reopen to apply"))
+                        .show();
+                }
+            });
 
             // Icon thread: renders the live CC-gauge tray icon and (macOS) drives
             // the blink-until-acknowledged alert. Ticks fast for smooth blinking;
