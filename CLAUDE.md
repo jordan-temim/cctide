@@ -1,4 +1,4 @@
-# ccgauge
+# cctide
 
 A menu-bar / system-tray gauge for Claude Code usage. The Tauri app is at the
 repo root.
@@ -42,6 +42,10 @@ notifications (`notify.rs`, once per level crossing, gated by
 `notifications_enabled`). macOS notifications need permission (requested at
 startup) and only surface reliably from the installed build.
 
+**Dev builds** show a small dot at the centre of the right C (black on macOS,
+orange on Windows/Linux), compiled in via `cfg!(debug_assertions)` and absent
+from release binaries.
+
 ## Local data sources (no network)
 
 Everything is read from `~/.claude`:
@@ -56,11 +60,11 @@ Everything is read from `~/.claude`:
   Code process (`pid`, `sessionId`, `cwd`, `version`). PIDs are checked for
   liveness.
 - **Memory**: `~/.claude/projects/<project>/memory/*.md`.
-- **App config**: the app's own data dir from the bundle id `com.ccgauge`
-  (macOS `~/Library/Application Support/com.ccgauge/ccgauge.json`; Windows
-  `%APPDATA%\com.ccgauge\`; Linux `~/.config/com.ccgauge/`). Holds calibration
+- **App config**: the app's own data dir from the bundle id `com.cctide`
+  (macOS `~/Library/Application Support/com.cctide/cctide.json`; Windows
+  `%APPDATA%\com.cctide\`; Linux `~/.config/com.cctide/`). Holds calibration
   anchors, context-limit overrides, refresh interval, `notifications_enabled`,
-  `alert_levels`, `dynamic_icon`.
+  `alert_levels`, `dynamic_icon`, `tracking_enabled`.
 
 Pricing and model metadata are **not** in `~/.claude` — they ship with the app at
 [`models.json`](models.json).
@@ -71,17 +75,19 @@ crossed — independently of whether the panel is open. It is edge-triggered: on
 notification per crossing, re-armed once the bar drops back below the threshold.
 
 The official weighted % from claude.ai is **not** stored locally, so the
-session/weekly bars are reconstructed by **manual calibration**: the user
-reports the % shown by `/usage`, and we derive a token "budget" from it, then
-track deltas from the local JSONL. Re-calibrate any time it drifts.
+session/weekly bars are reconstructed by **two-point calibration**: the user
+reports the % shown by `/usage` twice (once at first launch, then again when
+cctide notifies them ~25 percentage-points later). The two points let cctide fit
+`percent = a·tokens + b`, correcting both scale error and any constant offset
+between local token weights and Anthropic's internal metering. Until the second
+point is saved the bar uses a single-point fallback (`budget = tokens / (pct/100)`).
+The two most recent calibration points are always kept; a third replaces the oldest.
 
-**Plan-agnostic design.** ccgauge never stores or asks for the user's plan
+**Plan-agnostic design.** cctide never stores or asks for the user's plan
 (Pro / Max 5× / Max 20×). The plan only changes the absolute size of the quota
-(what 100% is worth in tokens/dollars). Calibration captures this automatically:
-`budget = tokens_so_far / (percent / 100)`. A Pro user calibrating at 6% and a
-Max user calibrating at 6% will each get a plan-appropriate budget. Per-model
-pricing ratios and the 5h/weekly window mechanics are identical across plans. If
-the user changes plans, they re-calibrate once.
+(what 100% is worth in tokens/dollars). Calibration captures this automatically.
+Per-model pricing ratios and the 5h/weekly window mechanics are identical across
+plans. If the user changes plans, they restart the two-step calibration.
 
 ## Calculation model
 
@@ -102,11 +108,15 @@ the user changes plans, they re-calibrate once.
   defaults live in [`models.rs`](src-tauri/src/models.rs). Source:
   <https://platform.claude.com/docs/en/about-claude/pricing> and
   <https://platform.claude.com/docs/en/about-claude/models/overview>, **captured
-  2026-05-30**. Only the pricing ratios matter (calibration normalises scale).
+  2026-06-03**. Only the pricing ratios matter (calibration normalises scale).
 - Calibration absorbs the absolute scale: `budget = K_now / (percent/100)`,
   then `percent = weighted_now / budget × 100`.
-- **Session**: rolling 5h window. **Weekly**: `week_start = reset_date − 7d`,
-  rolling forward as the reset date passes.
+- **Session**: rolling 5h window. **Weekly**: rolling 7-day window anchored to
+  `reset_date`. `week_start` is the most recent past occurrence of `reset_date`
+  (found by stepping backward in 7-day increments until `week_start ≤ now`);
+  `next_reset = week_start + 7d`. Works correctly whether `reset_date` is in
+  the past or more than 7 days in the future (e.g. the user's next upcoming
+  reset at first launch).
 - **Context per session**: full token sum of the latest assistant turn
   (`input + output + cache_creation + cache_read`) vs the model's context limit.
   Claude Code uses an effective **200k-token context** for all current models,

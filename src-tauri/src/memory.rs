@@ -59,16 +59,25 @@ pub fn read_memory(cache: &ScanCache, cwds: &[String]) -> Vec<MemoryFile> {
         });
 
         for path in files {
-            let content = std::fs::read_to_string(&path).unwrap_or_default();
+            // Resolve the real path and verify it stays inside the memory dir.
+            // This blocks symlinks that point outside `~/.claude/projects/*/memory/`.
+            let Ok(canon) = path.canonicalize() else { continue };
+            let Ok(canon_dir) = dir.canonicalize() else { continue };
+            if !canon.starts_with(&canon_dir) {
+                continue;
+            }
+            let content = std::fs::read_to_string(&canon).unwrap_or_default();
             let name = path
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("")
                 .to_string();
+            // Return the canonicalized path so openPath on the frontend always
+            // resolves to a file that is confirmed to be within the memory dir.
             out.push(MemoryFile {
                 project: project.clone(),
                 name,
-                path: path.to_string_lossy().to_string(),
+                path: canon.to_string_lossy().to_string(),
                 content,
             });
         }

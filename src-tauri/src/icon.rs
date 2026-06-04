@@ -8,6 +8,10 @@
 //! - **Windows/Linux**: square, colour. Each C's filled arc is tinted by its
 //!   alert tier (neutral/green/orange/red) over a grey track; no blink.
 //!
+//! **Dev indicator**: in debug builds (`cfg!(debug_assertions)`), a small dot
+//! is rendered at the geometric centre of the right C — black on macOS,
+//! orange on Windows/Linux. Compiled away entirely in release builds.
+//!
 //! Geometry mirrors `scripts/gen-icon.mjs` (arc 40°..320°, two C centres,
 //! 3×3 supersampling). Zero external deps.
 
@@ -19,12 +23,13 @@ const SWEEP: f64 = A1 - A0;
 const TAU: f64 = 2.0 * PI;
 
 pub struct IconParams {
-    pub session_fill: f64, // 0..1
-    pub weekly_fill: f64,  // 0..1
-    pub session_tier: u8,  // 0..3
-    pub weekly_tier: u8,   // 0..3
-    pub blink_off: bool,   // macOS blink frame: drop the filled arc
-    pub disabled: bool,    // tracking off: tracks only + diagonal slash
+    pub session_fill: f64,        // 0..1
+    pub weekly_fill: f64,         // 0..1
+    pub session_tier: u8,         // 0..3
+    pub weekly_tier: u8,          // 0..3
+    pub blink_off: bool,          // macOS blink frame: drop the filled arc
+    pub disabled: bool,           // tracking off: tracks only + diagonal slash
+    pub shimmer_pos: Option<f64>, // 0..1 position of refresh-wave notch along arc
 }
 
 pub struct RenderedIcon {
@@ -94,7 +99,28 @@ struct C {
 }
 
 /// Colour+alpha for a single sample point, or transparent.
-fn sample(px: f64, py: f64, g: &Geom, cs: &[C; 2], blink_off: bool, disabled: bool) -> [f64; 4] {
+fn sample(
+    px: f64,
+    py: f64,
+    g: &Geom,
+    cs: &[C; 2],
+    blink_off: bool,
+    disabled: bool,
+    shimmer_pos: Option<f64>,
+) -> [f64; 4] {
+    // Dev build indicator: small dot centred inside the right C.
+    if cfg!(debug_assertions) {
+        let dot_r = g.r * 0.13;
+        let dx = px - g.cx_right;
+        let dy = py - g.cy;
+        if dx * dx + dy * dy <= dot_r * dot_r {
+            return if g.mono {
+                [0.0, 0.0, 0.0, 255.0]
+            } else {
+                [230.0, 120.0, 20.0, 255.0] // orange on Windows/Linux
+            };
+        }
+    }
     for c in cs {
         let dx = px - c.cx;
         let dy = py - g.cy;
@@ -107,6 +133,20 @@ fn sample(px: f64, py: f64, g: &Geom, cs: &[C; 2], blink_off: bool, disabled: bo
             continue;
         }
         let t = (a - A0) / SWEEP;
+
+        // Shimmer: a small notch that sweeps the arc on each data refresh.
+        if !disabled {
+            if let Some(sp) = shimmer_pos {
+                if (t - sp).abs() < 0.04 && (dist - g.r).abs() <= g.t / 2.0 {
+                    return if g.mono {
+                        [0.0, 0.0, 0.0, 0.0] // transparent gap
+                    } else {
+                        [g.track[0] as f64, g.track[1] as f64, g.track[2] as f64, 255.0]
+                    };
+                }
+            }
+        }
+
         if g.mono {
             let suppress_fill = blink_off || disabled;
             let on_fill = !suppress_fill && t <= c.fill && (dist - g.r).abs() <= g.t / 2.0;
@@ -162,7 +202,7 @@ pub fn render(p: &IconParams) -> RenderedIcon {
                 for sx in 0..ss {
                     let fx = x as f64 + (sx as f64 + 0.5) / ss as f64;
                     let fy = y as f64 + (sy as f64 + 0.5) / ss as f64;
-                    let s = sample(fx, fy, &g, &cs, p.blink_off, p.disabled);
+                    let s = sample(fx, fy, &g, &cs, p.blink_off, p.disabled, p.shimmer_pos);
                     r += s[0] * s[3];
                     gg += s[1] * s[3];
                     b += s[2] * s[3];

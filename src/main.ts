@@ -16,6 +16,7 @@ interface WeeklyUsage {
   percent: number | null;
   reset_date: string | null;
   week_start: number | null;
+  next_reset_at: number | null;
   calibrated: boolean;
 }
 interface SessionCtx {
@@ -66,11 +67,17 @@ interface Config {
   alert_levels: number[];
   tracking_enabled: boolean;
   session_calibration: Calibration | null;
+  session_calibration_2: Calibration | null;
   weekly_calibration: Calibration | null;
+  weekly_calibration_2: Calibration | null;
 }
 
 // --- Helpers ---
-const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const $ = <T extends HTMLElement>(id: string): T => {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`Element #${id} not found`);
+  return el as T;
+};
 
 function fmt(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
@@ -101,6 +108,14 @@ function shortCwd(cwd: string): string {
 function hhmm(ts: number | null): string {
   if (!ts) return "—";
   return new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function dateHhmm(ts: number | null): string {
+  if (!ts) return "—";
+  const d = new Date(ts * 1000);
+  const date = d.toLocaleDateString([], { month: "short", day: "numeric" });
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return `${date} ${time}`;
 }
 
 // Keeps the version (e.g. "opus-4-8"), unlike modelShort which collapses to family.
@@ -161,8 +176,8 @@ async function refresh() {
     tierClass(session.percent, cfg.alert_levels),
   );
 
-  const resetTxt = weekly.reset_date
-    ? `resets ${weekly.reset_date.replace("T", " ")}`
+  const resetTxt = weekly.next_reset_at
+    ? `resets ${dateHhmm(weekly.next_reset_at)}`
     : "reset not set";
   setSegmentedBar(
     "weekly-bar",
@@ -171,6 +186,13 @@ async function refresh() {
     `${fmt(weekly.weighted_tokens)} tokens · ${resetTxt}`,
     tierClass(weekly.percent, cfg.alert_levels),
   );
+
+  if (import.meta.env.DEV) {
+    const fmtPct = (p: number | null) =>
+      p != null ? `${p.toFixed(2)}%` : "—";
+    $<HTMLSpanElement>("dbg-session").textContent = fmtPct(session.percent);
+    $<HTMLSpanElement>("dbg-weekly").textContent = fmtPct(weekly.percent);
+  }
 
   // Open sessions
   const list = $<HTMLDivElement>("sessions-list");
@@ -345,13 +367,22 @@ function clampInput(id: string) {
 
 function updateCalibStatus(cfg: Config) {
   const el = $<HTMLSpanElement>("calib-status");
-  const done = cfg.session_calibration != null && cfg.weekly_calibration != null;
+  const done =
+    cfg.session_calibration != null && cfg.session_calibration_2 != null &&
+    cfg.weekly_calibration != null && cfg.weekly_calibration_2 != null;
   el.textContent = done ? "✓" : "●";
   el.className = "calib-status " + (done ? "done" : "pending");
+
+  // Dynamic labels and hint visibility.
+  $("calib-label-session").textContent =
+    cfg.session_calibration != null ? "2nd - Session (5h)" : "First - Session (5h)";
+  $("calib-label-weekly").textContent =
+    cfg.weekly_calibration != null ? "2nd - Weekly limit" : "First - Weekly limit";
+  const hint = $("calib-hint");
+  if (done) hint.classList.add("hidden"); else hint.classList.remove("hidden");
 }
 
-async function setupCalibration() {
-  const cfg = await invoke<Config>("get_config");
+function setupCalibration(cfg: Config) {
   if (cfg.weekly_reset_date) $<HTMLInputElement>("calib-reset").value = cfg.weekly_reset_date;
   updateCalibStatus(cfg);
   clampInput("calib-session");
@@ -366,8 +397,10 @@ async function setupCalibration() {
         weeklyPercent: pct("calib-weekly"),
         resetDate: $<HTMLInputElement>("calib-reset").value || null,
       });
-      msg.textContent = "Calibrated ✓";
       const updated = await invoke<Config>("get_config");
+      const allDone =
+        updated.session_calibration_2 != null && updated.weekly_calibration_2 != null;
+      msg.textContent = allDone ? "Calibrated ✓" : "Saved — calibrate once more when notified.";
       updateCalibStatus(updated);
       await refresh();
     } catch (err) {
@@ -376,8 +409,7 @@ async function setupCalibration() {
   });
 }
 
-async function setupNotifications() {
-  const cfg = await invoke<Config>("get_config");
+function setupNotifications(cfg: Config) {
   $<HTMLInputElement>("notif-enabled").checked = cfg.notifications_enabled;
   const levels = cfg.alert_levels ?? [33, 66, 90];
   ["1", "2", "3"].forEach((i, idx) => {
@@ -432,8 +464,7 @@ function setupAutoResize() {
 
 let timer: number | undefined;
 
-async function setupTracking() {
-  const cfg = await invoke<Config>("get_config");
+function setupTracking(cfg: Config) {
   const toggle = $<HTMLInputElement>("tracking-toggle");
   toggle.checked = cfg.tracking_enabled ?? true;
   toggle.addEventListener("change", async () => {
@@ -456,12 +487,12 @@ window.addEventListener("DOMContentLoaded", async () => {
     const el = document.getElementById("app-version");
     if (el) el.textContent = `v ${v}`;
   });
-  await setupCalibration();
-  await setupNotifications();
-  await setupTracking();
+  const cfg = await invoke<Config>("get_config");
+  setupCalibration(cfg);
+  setupNotifications(cfg);
+  setupTracking(cfg);
   await refresh();
 
-  const cfg = await invoke<Config>("get_config");
   const interval = Math.max(5, cfg.refresh_secs) * 1000;
   timer = window.setInterval(refresh, interval);
 });

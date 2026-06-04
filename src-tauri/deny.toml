@@ -1,0 +1,60 @@
+[advisories]
+# Ignore "unmaintained" notices for Linux GTK3 bindings: these crates are
+# Linux-only and are never compiled or shipped on the app's macOS/Windows
+# targets.  Upstream Tauri owns the upgrade path; we cannot fix them here.
+ignore = [
+    # gtk-rs GTK3 no longer maintained (RUSTSEC-2024-0411 … 0420)
+    "RUSTSEC-2024-0411",
+    "RUSTSEC-2024-0412",
+    "RUSTSEC-2024-0413",
+    "RUSTSEC-2024-0414",
+    "RUSTSEC-2024-0415",
+    "RUSTSEC-2024-0416",
+    "RUSTSEC-2024-0417",
+    "RUSTSEC-2024-0418",
+    "RUSTSEC-2024-0419",
+    "RUSTSEC-2024-0420",
+    # proc-macro-error unmaintained (build-time only, not in the runtime binary)
+    "RUSTSEC-2024-0370",
+    # unic-* unmaintained — transitive via tauri-utils/urlpattern; Tauri owns fix
+    "RUSTSEC-2025-0075",
+    "RUSTSEC-2025-0080",
+    "RUSTSEC-2025-0081",
+    "RUSTSEC-2025-0098",
+    "RUSTSEC-2025-0100",
+    # glib VariantStrIter unsound — Linux-only GTK dependency, not compiled on
+    # macOS/Windows; Tauri owns the upgrade path
+    "RUSTSEC-2024-0429",
+]
+
+[licenses]
+# Allow standard permissive/weak-copyleft licenses that are common in the
+# Rust ecosystem and compatible with distributing a compiled desktop app.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "ISC",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "Zlib",
+]
+# Warn on unlicensed crates rather than hard-failing; a handful of Tauri
+# internals embed their license in Cargo.toml as a custom string.
+confidence-threshold = 0.8
+
+[bans]
+# Refuse multiple versions of the same crate when a single version suffices.
+multiple-versions = "warn"
+# Deny known-dangerous crates.
+deny = []
+
+[sources]
+# Only allow crates from crates.io and the Tauri upstream GitHub.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

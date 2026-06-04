@@ -427,7 +427,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ccgauge"
+name = "cctide"
 version = "0.1.0"
 dependencies = [
  "chrono",

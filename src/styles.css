@@ -129,6 +129,13 @@ body {
   font-weight: 500;
   margin-bottom: 6px;
 }
+.dbg-pct {
+  font-size: 10px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  margin-left: 6px;
+}
 
 .val {
   font-variant-numeric: tabular-nums;
@@ -409,41 +416,45 @@ body {
 
 .calib-hint {
   font-size: 11px;
-  line-height: 1.5;
+  line-height: 1.4;
   color: var(--muted);
 }
+.calib-hint.hidden { display: none; }
 .calib-hint b {
   color: var(--text);
   font-weight: 600;
 }
-.calib-group {
-  display: flex;
-  flex-direction: column;
+.calib-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
   padding: 8px 10px;
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 6px;
 }
-.calib-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent);
-}
-.calib label {
+.calib-col {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
+}
+.calib-col-full {
+  grid-column: 1 / -1;
+}
+.calib-title {
   font-size: 11px;
-  color: var(--muted);
+  font-weight: 600;
+  color: var(--accent);
 }
 .calib input {
   background: var(--field);
   border: 1px solid var(--line);
   border-radius: 5px;
   color: var(--text);
-  padding: 6px 8px;
+  padding: 5px 7px;
   font-size: 13px;
+  width: 100%;
+  box-sizing: border-box;
 }
 button.primary {
   background: var(--accent);
@@ -478,6 +489,15 @@ button.primary:hover {
   flex-direction: column;
   align-items: center;
   gap: 2px;
+}
+.foot-logo-link {
+  display: inline-flex;
+  border-radius: 6px;
+  opacity: 0.85;
+  transition: opacity 0.15s;
+}
+.foot-logo-link:hover {
+  opacity: 1;
 }
 .foot-logo {
   width: 40px;

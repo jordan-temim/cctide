@@ -164,7 +164,7 @@ fn parse_file(path: &Path, pricing: &Models) -> (Vec<Point>, Option<LastCtx>) {
         let rid = rec.get("requestId").and_then(|v| v.as_str());
         let key = match (mid, rid) {
             (None, None) => fnv1a(&format!("{path_str}#{line_no}")),
-            (m, r) => fnv1a(&format!("{}|{}", m.unwrap_or(""), r.unwrap_or(""))),
+            (m, r) => fnv1a(&format!("{}\0{}", m.unwrap_or(""), r.unwrap_or(""))),
         };
 
         // Context occupancy = all tokens present in the window (cache-read included).
@@ -509,5 +509,38 @@ mod tests {
     #[test]
     fn encode_cwd_preserves_alphanumeric() {
         assert_eq!(encode_cwd("abc123"), "abc123");
+    }
+
+    // --- fnv1a ---
+
+    #[test]
+    fn fnv1a_deterministic() {
+        assert_eq!(fnv1a("hello|world"), fnv1a("hello|world"));
+    }
+
+    #[test]
+    fn fnv1a_different_inputs_differ() {
+        assert_ne!(fnv1a("abc|def"), fnv1a("def|abc"));
+        assert_ne!(fnv1a("msg1|req1"), fnv1a("msg2|req1"));
+    }
+
+    #[test]
+    fn fnv1a_empty_string_is_offset_basis() {
+        assert_eq!(fnv1a(""), 0xcbf29ce484222325);
+    }
+
+    // --- parse_ts ---
+
+    #[test]
+    fn parse_ts_valid_rfc3339() {
+        let ts = parse_ts("2026-05-29T17:26:09.467Z");
+        assert!(ts.is_some());
+        assert!(ts.unwrap() > 0);
+    }
+
+    #[test]
+    fn parse_ts_invalid_returns_none() {
+        assert!(parse_ts("not-a-date").is_none());
+        assert!(parse_ts("").is_none());
     }
 }

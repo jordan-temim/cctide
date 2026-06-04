@@ -1,4 +1,4 @@
-//! ccgauge — offline tracking of Claude Code consumption (tray app).
+//! cctide — offline tracking of Claude Code consumption (tray app).
 
 mod config;
 mod context;
@@ -117,12 +117,8 @@ fn get_panel_data(state: tauri::State<AppState>) -> PanelData {
 
     let active = context::active_sessions(&cache, &cfg, &sys, &state.models);
 
-    let week_start = cfg
-        .weekly_reset_date
-        .as_deref()
-        .and_then(|d| usage::week_start_from_reset(d, now));
     let models = cache
-        .model_totals(week_start)
+        .model_totals(weekly.week_start)
         .into_iter()
         .map(|(model, tokens)| ModelUsage { model, tokens })
         .collect();
@@ -223,6 +219,8 @@ fn set_calibration(
         }
         let pct = pct.clamp(0.0, 100.0);
         let s = usage::session_usage(&points, &cfg, now);
+        // Promote: current cal_1 → cal_2 (keep the two most recent points).
+        cfg.session_calibration_2 = cfg.session_calibration.take();
         cfg.session_calibration = Some(Calibration {
             percent: pct,
             budget: usage::budget_from_percent(s.weighted_tokens, pct),
@@ -236,6 +234,7 @@ fn set_calibration(
         }
         let pct = pct.clamp(0.0, 100.0);
         let w = usage::weekly_usage(&points, &cfg, now);
+        cfg.weekly_calibration_2 = cfg.weekly_calibration.take();
         cfg.weekly_calibration = Some(Calibration {
             percent: pct,
             budget: usage::budget_from_percent(w.weighted_tokens, pct),
@@ -311,13 +310,13 @@ pub fn run() {
             let tray_icon =
                 tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon.png"))?;
 
-            let quit = MenuItem::with_id(app, "quit", "Quit ccgauge", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Quit cctide", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&quit])?;
 
-            TrayIconBuilder::with_id("ccgauge-tray")
+            TrayIconBuilder::with_id("cctide-tray")
                 .icon(tray_icon)
                 .icon_as_template(true)
-                .tooltip("ccgauge")
+                .tooltip("cctide")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| {
@@ -366,14 +365,17 @@ pub fn run() {
             let ih = app.handle().clone();
             std::thread::spawn(move || {
                 const TICK_MS: u64 = 400;
+                // Shimmer: a small notch sweeps both C arcs for SHIMMER_TICKS after each recompute.
+                const SHIMMER_TICKS: u64 = 5; // ~2 s
                 let mut tick: u64 = 0;
                 let mut fills = (0.0_f64, 0.0_f64);
                 let mut tiers = (0u8, 0u8);
-                let mut last_sig: Option<(i32, i32, u8, u8, bool)> = None;
+                let mut last_sig: Option<(i32, i32, u8, u8, bool, i32)> = None;
                 let mut last_disabled: Option<bool> = None;
+                let mut shimmer_start: Option<u64> = None;
 
                 loop {
-                    let cfg = ih
+                    let mut cfg = ih
                         .state::<AppState>()
                         .config_cache
                         .lock()
@@ -389,13 +391,14 @@ pub fn run() {
                                 weekly_tier: 0,
                                 blink_off: false,
                                 disabled: true,
+                                shimmer_pos: None,
                             });
                             let img = tauri::image::Image::new_owned(
                                 rendered.rgba,
                                 rendered.width,
                                 rendered.height,
                             );
-                            if let Some(tray) = ih.tray_by_id("ccgauge-tray") {
+                            if let Some(tray) = ih.tray_by_id("cctide-tray") {
                                 let _ = tray.set_icon(Some(img));
                             }
                             last_disabled = Some(true);
@@ -409,10 +412,11 @@ pub fn run() {
 
                     let recompute_every = (cfg.refresh_secs.max(5) * 1000 / TICK_MS).max(1);
                     if tick.is_multiple_of(recompute_every) {
+                        shimmer_start = Some(tick);
                         let state = ih.state::<AppState>();
                         // Reload config from disk once per recompute cycle to pick
-                        // up any external edits to ccgauge.json.
-                        let cfg = config::load();
+                        // up any external edits to cctide.json.
+                        cfg = config::load();
                         *state.config_cache.lock().expect("config_cache poisoned") = cfg.clone();
                         let now = now_ts();
                         let points = refreshed_points(&state);
@@ -451,6 +455,17 @@ pub fn run() {
                     // Render/blink the icon only when the dynamic icon is on;
                     // notifications above run regardless.
                     if cfg.dynamic_icon {
+                        // Shimmer: small notch sweeping both C arcs after each recompute.
+                        let shimmer_pos = shimmer_start.and_then(|start| {
+                            let elapsed = tick.wrapping_sub(start);
+                            if elapsed < SHIMMER_TICKS {
+                                Some(elapsed as f64 / SHIMMER_TICKS as f64)
+                            } else {
+                                None
+                            }
+                        });
+                        let shimmer_sig = shimmer_pos.map(|p| (p * 100.0) as i32).unwrap_or(-1);
+
                         let max_tier = tiers.0.max(tiers.1);
                         let blink_off = {
                             #[cfg(target_os = "macos")]
@@ -481,6 +496,7 @@ pub fn run() {
                             tiers.0,
                             tiers.1,
                             blink_off,
+                            shimmer_sig,
                         );
                         if last_sig != Some(sig) {
                             let rendered = icon::render(&icon::IconParams {
@@ -490,8 +506,9 @@ pub fn run() {
                                 weekly_tier: tiers.1,
                                 blink_off,
                                 disabled: false,
+                                shimmer_pos,
                             });
-                            if let Some(tray) = ih.tray_by_id("ccgauge-tray") {
+                            if let Some(tray) = ih.tray_by_id("cctide-tray") {
                                 let img = tauri::image::Image::new_owned(
                                     rendered.rgba,
                                     rendered.width,

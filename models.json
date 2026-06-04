@@ -1,5 +1,5 @@
 {
-  "_comment": "Per-model data: quota weighting ($/MTok), context window (tokens), family, and deprecation status. Source: https://platform.claude.com/docs/en/about-claude/pricing and https://platform.claude.com/docs/en/about-claude/models/overview (captured 2026-05-30). Keys match a substring of the model id; the longest match wins (so 'opus-4-8' beats 'opus'). cache_read is intentionally omitted from pricing: Anthropic's rate-limit metering counts input + cache_creation and excludes cache_read (https://platform.claude.com/docs/en/api/rate-limits). Only pricing ratios matter; calibration absorbs the absolute scale.",
+  "_comment": "Per-model data: quota weighting ($/MTok), context window (tokens), family, and deprecation status. Source: https://platform.claude.com/docs/en/about-claude/pricing and https://platform.claude.com/docs/en/about-claude/models/overview (captured 2026-06-03). Keys match a substring of the model id; the longest match wins (so 'opus-4-8' beats 'opus'). cache_read is intentionally omitted from pricing: Anthropic's rate-limit metering counts input + cache_creation and excludes cache_read (https://platform.claude.com/docs/en/api/rate-limits). Only pricing ratios matter; calibration absorbs the absolute scale.",
   "models": {
     "opus-4-8": {
       "input": 5.0,
@@ -20,6 +20,15 @@
       "deprecated": false
     },
     "opus-4-6": {
+      "input": 5.0,
+      "output": 25.0,
+      "cache_write_5m": 6.25,
+      "cache_write_1h": 10.0,
+      "context_window": 200000,
+      "family": "opus",
+      "deprecated": false
+    },
+    "opus-4-5": {
       "input": 5.0,
       "output": 25.0,
       "cache_write_5m": 6.25,
@@ -55,6 +64,15 @@
       "family": "sonnet",
       "deprecated": false
     },
+    "sonnet-4-5": {
+      "input": 3.0,
+      "output": 15.0,
+      "cache_write_5m": 3.75,
+      "cache_write_1h": 6.0,
+      "context_window": 200000,
+      "family": "sonnet",
+      "deprecated": false
+    },
     "sonnet": {
       "input": 3.0,
       "output": 15.0,
@@ -62,6 +80,15 @@
       "cache_write_1h": 6.0,
       "context_window": 200000,
       "family": "sonnet",
+      "deprecated": false
+    },
+    "haiku-4-5": {
+      "input": 1.0,
+      "output": 5.0,
+      "cache_write_5m": 1.25,
+      "cache_write_1h": 2.0,
+      "context_window": 200000,
+      "family": "haiku",
       "deprecated": false
     },
     "haiku": {
