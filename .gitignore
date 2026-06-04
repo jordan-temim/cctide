@@ -13,3 +13,6 @@ src-tauri/gen/schemas/
 
 # Build output
 build/
+
+# Experimental usage-calibration lab (data + scripts, not committed)
+lab/
