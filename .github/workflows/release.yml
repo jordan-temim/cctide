@@ -97,17 +97,20 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build -- --target universal-apple-darwin
 
-      - name: List bundle output
-        run: find src-tauri/target/universal-apple-darwin/release/bundle -type f | sort
+      - name: Collect artifacts
+        run: |
+          bundle=src-tauri/target/universal-apple-darwin/release/bundle
+          mkdir upload
+          cp "$bundle"/dmg/*.dmg upload/
+          cp "$bundle"/macos/*.app.tar.gz upload/
+          cp "$bundle"/macos/*.app.tar.gz.sig upload/
+          ls -la upload/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: macos-artifacts
-          path: |
-            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
-            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
-            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
+          path: upload/
           if-no-files-found: error
 
   build-win:
@@ -164,17 +167,20 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build -- --bundles msi
 
-      - name: List bundle output
+      - name: Collect artifacts
         shell: bash
-        run: find src-tauri/target/release/bundle -type f | sort
+        run: |
+          bundle=src-tauri/target/release/bundle
+          mkdir upload
+          cp "$bundle"/msi/*.msi upload/
+          cp "$bundle"/msi/*.msi.sig upload/
+          ls -la upload/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-artifacts
-          path: |
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/bundle/msi/*.msi.sig
+          path: upload/
           if-no-files-found: error
 
   release:
