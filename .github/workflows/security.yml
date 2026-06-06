@@ -9,8 +9,6 @@ on:
     - cron: "0 6 * * 1"
   workflow_call:
 
-permissions: read-all
-
 jobs:
   audit:
     name: cargo audit
