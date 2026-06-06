@@ -49,8 +49,10 @@ Fail only on high/critical.
 
 ### 6. cargo deny (if installed)
 ```
-cargo deny --manifest-path src-tauri/Cargo.toml check licenses sources bans
+cargo deny --manifest-path src-tauri/Cargo.toml check --config deny.toml licenses sources bans
 ```
+`--config deny.toml` is required: the config lives at the repo root, not in
+`src-tauri/`, so without it cargo deny falls back to defaults and licenses fail.
 Skip with a note if `cargo deny` is not installed.
 
 ### 7. gitleaks (if installed)

@@ -6,7 +6,8 @@ cctide is a local desktop app. It:
 - reads `~/.claude` (JSONL transcripts, session files, memory markdown)
 - writes one config file to the OS config dir
 - renders a web UI in a Tauri webview
-- makes zero network requests
+- sends no usage data anywhere; its **only** outbound request is the updater's
+  check/download to GitHub (`latest.json` + the signed bundle)
 
 Attacker surfaces:
 1. **Malicious JSONL content** — a rogue Claude Code session could write crafted JSONL to `~/.claude`
@@ -14,6 +15,8 @@ Attacker surfaces:
 3. **XSS via memory files** — memory `.md` content rendered in the webview
 4. **Config tampering** — an attacker with local access modifies `cctide.json`
 5. **Dependency vulnerabilities** — Rust crates and npm packages
+6. **Malicious update** — a compromised GitHub release or MITM serves a rogue
+   bundle / `latest.json`
 
 ## Audit checklist
 
@@ -34,12 +37,20 @@ Attacker surfaces:
 - [ ] Symlink following: could a symlink in `~/.claude` redirect reads outside the intended tree?
 - [ ] Tmp file for atomic save: is it on the same volume? Are permissions correct?
 
+**Auto-update**
+- [ ] Update signature verification: is `plugins.updater.pubkey` set in `tauri.conf.json` (so a compromised release / MITM can't push an unsigned bundle)?
+- [ ] `latest.json` `version` is interpolated into the changelog URL — is it sanitized before being passed to `openUrl` (no scheme/host injection)?
+- [ ] `update.body` (release notes from an unsigned `latest.json`): if ever rendered in the panel, is it escaped (no `innerHTML`)?
+- [ ] `install_update` / `restart_app` commands: harmless if invoked from a hypothetical XSS (install is signature-gated, restart is benign)?
+- [ ] Privacy claims (README/CLAUDE.md) stay accurate: the updater contacts GitHub, so "zero network requests" must be scoped to *usage data / telemetry*.
+
 **Dependencies**
 Run the following and report findings:
 ```sh
 cd src-tauri && cargo audit
 npm audit --audit-level=moderate
-cargo deny --manifest-path src-tauri/Cargo.toml check licenses sources bans
+# --config is required: deny.toml lives at the repo root, not in src-tauri/
+cargo deny --manifest-path src-tauri/Cargo.toml check --config deny.toml licenses sources bans
 ```
 
 **Secrets / data leakage**
@@ -66,6 +77,9 @@ Then print a **checklist summary table** covering every audit area:
 | Filesystem | No writes to `~/.claude` | ✅ / ❌ | |
 | Filesystem | Symlink following risk | ✅ / ❌ | |
 | Filesystem | Atomic save tmp-file volume + permissions | ✅ / ❌ | |
+| Auto-update | Update signature verification (pubkey set) | ✅ / ❌ | |
+| Auto-update | `latest.json` version sanitized before `openUrl` | ✅ / ❌ | |
+| Auto-update | Privacy claims scoped to usage data (not "zero network") | ✅ / ❌ | |
 | Dependencies | cargo audit | ✅ (N warns) / ❌ | expected GTK3 warns OK |
 | Dependencies | npm audit | ✅ / ❌ | |
 | Dependencies | cargo deny | ✅ / ❌ / ⚠️ not installed | |

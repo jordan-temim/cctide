@@ -9,13 +9,15 @@ Run `/code-review high` as the base review pass, then go further on the angles b
 - `usage.rs`: two-point calibration math (`percent_from`) — does the linear fit hold at boundary values (0%, 100%, one point = the other)?
 - `usage.rs`: `week_window_from_reset` — DST edge cases (`.single()` returns None on ambiguous local times), timezone correctness
 - `config.rs`: atomic save (write tmp → rename) — is the tmp path on the same filesystem as the target? Cross-device rename fails silently on some setups
-- `icon.rs`: render correctness — fill values outside [0, 1] passed to render; any clamping?
-- `lib.rs`: icon thread — lock ordering (config_cache → cache → icon_state), any potential for deadlock?
+- `icon.rs`: render correctness — fill values outside [0, 1] passed to render; any clamping? The update "U" glyph (`update_available`) — drawn on top, unaffected by blink?
+- `lib.rs`: icon thread — lock ordering (config_cache → cache → icon_state → available_update), any potential for deadlock?
+- `lib.rs` auto-update — the `UPDATE_CHECKING` / `UPDATE_STAGED` / `UPDATE_AVAILABLE` atomics: is `UPDATE_CHECKING` always cleared (even on every early `return` inside the async block)? Can a periodic check race `install_update`? Is `available_update` only ever a leaf lock (never held while taking another)? Does the "found" notification fire exactly once per version?
 
 **TypeScript frontend**
 - `$()` helper casts `getElementById` result without null check — any ID that could be missing from the DOM?
 - `setSegmentedBar`: `Math.ceil(pct / (100 / SEGMENTS))` — behaviour at pct = 0, pct = 100, pct > 100?
-- Event listeners and `setInterval` — any leak if the panel is opened/closed repeatedly?
+- Event listeners and `setInterval` — any leak if the panel is opened/closed repeatedly? Update-banner listeners must be wired once (in `setupUpdate`), not per refresh.
+- Update banner — once `updateStaged` (install succeeded, button is "Restart now"), does `renderUpdateBanner` avoid overwriting that terminal state on later refreshes?
 
 **Data integrity**
 - Does any code path write to `~/.claude`? (must never happen)

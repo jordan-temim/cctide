@@ -10,7 +10,14 @@ Focus on files that have business logic worth testing:
 - `config.rs` — `level_for`, `sanitize_levels`, `parse_config`
 - `models.rs` — model lookup (longest-match), fallback to default
 
-Ignore `lib.rs`, `main.rs`, `notify.rs`, `icon.rs` — they are wiring/rendering code without testable pure logic.
+Ignore `lib.rs`, `main.rs`, `notify.rs` — wiring/IPC/threading code without
+testable pure logic (the auto-update flow there is integration-only: it needs the
+live Tauri updater + network, so it's not unit-testable without heavy mocking).
+
+`icon.rs` is rendering code, but its pure `render()` output is worth a smoke test
+— there's already one asserting the update "U" adds opaque pixels. Add similar
+pixel-level assertions only when render behaviour changes; don't chase coverage on
+the geometry math.
 
 ## Step 2 — Gap report
 
