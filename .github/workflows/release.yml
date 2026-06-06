@@ -223,7 +223,8 @@ jobs:
               version: $version,
               pub_date: $pub_date,
               platforms: {
-                "darwin-universal": { url: $mac_url, signature: $mac_sig },
+                "darwin-x86_64": { url: $mac_url, signature: $mac_sig },
+                "darwin-aarch64": { url: $mac_url, signature: $mac_sig },
                 "windows-x86_64": { url: $msi_url, signature: $msi_sig }
               }
             }' > artifacts/latest.json
