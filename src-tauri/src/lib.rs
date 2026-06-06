@@ -290,30 +290,66 @@ fn maybe_check_update(app: &tauri::AppHandle, force: bool) {
 
     let app = app.clone();
     std::thread::spawn(move || {
+        update_log(&format!(
+            "check start (force={force}, current={})",
+            app.package_info().version
+        ));
         let staged = tauri::async_runtime::block_on(async {
-            let Ok(updater) = app.updater() else {
-                return false;
+            let updater = match app.updater() {
+                Ok(u) => u,
+                Err(e) => {
+                    update_log(&format!("updater() failed: {e}"));
+                    return false;
+                }
             };
-            let Ok(Some(update)) = updater.check().await else {
-                return false;
+            let update = match updater.check().await {
+                Ok(Some(u)) => u,
+                Ok(None) => {
+                    update_log("check ok: already up to date");
+                    return false;
+                }
+                Err(e) => {
+                    update_log(&format!("check failed: {e}"));
+                    return false;
+                }
             };
             let version = update.version.clone();
-            if update.download_and_install(|_, _| {}, || {}).await.is_ok() {
-                let _ = app
-                    .notification()
-                    .builder()
-                    .title("cctide updated")
-                    .body(format!("v{version} ready — quit and reopen to apply"))
-                    .show();
-                return true;
+            update_log(&format!("update found: v{version}, downloading"));
+            match update.download_and_install(|_, _| {}, || {}).await {
+                Ok(()) => {
+                    update_log(&format!("install ok: v{version} staged"));
+                    let _ = app
+                        .notification()
+                        .builder()
+                        .title("cctide updated")
+                        .body(format!("v{version} ready — quit and reopen to apply"))
+                        .show();
+                    true
+                }
+                Err(e) => {
+                    update_log(&format!("install failed: {e}"));
+                    false
+                }
             }
-            false
         });
         if staged {
             UPDATE_STAGED.store(true, Ordering::SeqCst);
         }
         UPDATE_CHECKING.store(false, Ordering::SeqCst);
     });
+}
+
+/// TEMP debug logging for the update flow — appends to /tmp/cctide-update.log.
+/// Remove once the auto-update flow is verified.
+fn update_log(msg: &str) {
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/cctide-update.log")
+    {
+        let _ = writeln!(f, "{} {msg}", chrono::Utc::now().to_rfc3339());
+    }
 }
 
 fn toggle_window(app: &tauri::AppHandle) {
