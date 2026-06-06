@@ -191,7 +191,7 @@ pub fn daily_buckets(points: &[Point], week_start: i64, now: i64) -> Vec<(i64, f
     let ws_dt = Local
         .timestamp_opt(week_start, 0)
         .single()
-        .unwrap_or_else(|| Local::now());
+        .unwrap_or_else(Local::now);
     let ws_date = ws_dt.date_naive();
 
     let mut buckets = Vec::with_capacity(7);
@@ -517,7 +517,6 @@ mod tests {
 
     #[test]
     fn daily_buckets_sums_points_in_correct_day() {
-        use chrono::{Local, TimeZone};
         // Anchor on a known date; we'll query local-midnight boundaries ourselves.
         let week_start = 1_736_078_400i64; // 2026-01-05 12:00:00 UTC
         let now = week_start + 4 * 86400;
@@ -567,7 +566,10 @@ mod tests {
         let boundary_pt = pt(day1_start, 42.0);
         let buckets = daily_buckets(&[boundary_pt], week_start, now);
         assert_eq!(buckets[0].1, 0.0, "day 0 must be empty");
-        assert!((buckets[1].1 - 42.0).abs() < 1e-9, "day 1 must contain boundary point");
+        assert!(
+            (buckets[1].1 - 42.0).abs() < 1e-9,
+            "day 1 must contain boundary point"
+        );
     }
 
     #[test]
