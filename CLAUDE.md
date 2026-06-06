@@ -228,19 +228,33 @@ install-only), so `latest.json`'s `darwin-universal` URL points at the
 }
 ```
 
-### Client behaviour (`lib.rs`, `maybe_check_update`)
+### Client behaviour (`lib.rs`)
 
-Checks run **at startup** (forced) and **on panel open** (throttled — frequent
-tray toggles don't spam checks). When a newer version is found it downloads
-silently and fires an OS notification ("quit and reopen to apply"); the update is
-applied on the next relaunch (we never force-restart). Guards:
-`UPDATE_CHECKING` (no concurrent downloads), `UPDATE_STAGED` (stop all checks
-once an update is downloaded and waiting), `UPDATE_LAST_CHECK` (throttle window).
+Updates are **user-initiated**, not silent. Detection is **check-only**:
+`spawn_update_check` runs at startup and then every `UPDATE_CHECK_INTERVAL` (2h)
+via a background thread. When a newer version is found it records an `UpdateInfo`
+(version, release notes, GitHub release-tag URL) in `AppState.available_update`,
+sets `UPDATE_AVAILABLE`, and fires an OS notification **once per version**
+("open cctide to install"). It never downloads on its own.
+
+Surfaced two ways: a **panel banner** (`#update-banner`, fed via `PanelData.update`
+on the normal refresh poll) showing "Update available: vX.Y.Z" + a "What's new"
+link (opens the release page via the opener plugin), and a **"U" glyph** drawn in
+the right C of the tray icon (`icon.rs`, gated by `IconParams.update_available`,
+driven by `UPDATE_AVAILABLE`).
+
+The user clicks **Install** → the `install_update` command downloads + installs
+(`UPDATE_STAGED` set on success); the button becomes **Restart now** →
+`restart_app` command calls `app.restart()`. We never force-restart on our own.
+Guards: `UPDATE_CHECKING` (no concurrent checks), `UPDATE_STAGED` (stop checks
+once staged).
 
 > The first version able to **receive** updates is the first release that shipped
 > a working signed `.app.tar.gz` + `latest.json`. Earlier installs must be
 > updated manually.
 
-> **Testing:** `UPDATE_THROTTLE` in `lib.rs` is temporarily set low (2 min) to
-> exercise the flow — revert to a production value (e.g. 1h) once verified. (There
-> is a matching `TODO` in the code.)
+> `latest.json`'s `version` field must be **plain semver** (no leading `v`) or the
+> updater silently fails to parse it; the macOS platform keys are
+> **`darwin-x86_64` + `darwin-aarch64`** (both pointing at the universal
+> `.app.tar.gz`) — the updater matches by runtime arch, not `darwin-universal`.
+> Both are handled in `release.yml`'s "Generate latest.json" step.

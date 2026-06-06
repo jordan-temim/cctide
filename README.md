@@ -11,17 +11,18 @@
   <a href="https://github.com/jordan-temim/cctide/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License" /></a>
   <a href="https://github.com/jordan-temim/cctide/releases"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey" alt="Platform" /></a>
   <a href="https://tauri.app"><img src="https://img.shields.io/badge/built%20with-Tauri%20v2-24C8DB" alt="Built with Tauri v2" /></a>
-  <a href="#no-credentials-ever"><img src="https://img.shields.io/badge/network-100%25%20local-brightgreen" alt="No network" /></a>
+  <a href="#no-credentials-ever"><img src="https://img.shields.io/badge/telemetry-none-brightgreen" alt="No telemetry" /></a>
 </p>
 
 **Local Claude Code usage gauge — menu bar on macOS, system tray on Windows.**
 
 Track your session and weekly quota, open sessions' context windows, project memory, and RTK savings.
 
-**No API call is ever made — not to Anthropic, not to any external service.**
+**Your usage data never leaves your machine — no Anthropic API, no telemetry, no analytics.**
 **No credentials required — no API key, no session cookie, no keychain access.**
 
-All data is read directly from `~/.claude`.
+All data is read directly from `~/.claude`. The only network request cctide makes
+is the update check to GitHub (see [Updates](#updates)) — no usage data is sent with it.
 
 <p align="center">
   <img src="docs/overview.png" width="380" />
@@ -100,6 +101,24 @@ Output: `build\cctide-*.msi`
 
 1. Run the installer. SmartScreen may show "unknown publisher" → **More info** → **Run anyway**.
 2. The icon appears in the **system tray** (bottom right). Click to open.
+
+---
+
+## Updates
+
+cctide updates itself — **you stay in control of when**. It checks for a new
+version at launch and every couple of hours while running. When one is available:
+
+- a small **"U"** appears in the tray icon, and
+- a banner shows at the top of the panel: **Update available: vX.Y.Z**, with a
+  **What's new** link to the release notes.
+
+Click **Install** to download it, then **Restart now** to apply. Nothing is
+installed or restarted without your click.
+
+> Auto-update works from the first release that shipped it onward. If you're on an
+> older build, grab the latest `.dmg`/`.msi` from the
+> [Releases page](https://github.com/jordan-temim/cctide/releases/latest) once.
 
 ---
 
@@ -196,9 +215,9 @@ The icon reacts independently of the notifications toggle.
 
 ## No credentials, ever
 
-**cctide makes zero network requests.** Most Claude usage trackers need a credential to query the API on your behalf — a browser session cookie extracted from DevTools, a session key stored in the system Keychain, or an OAuth token read from disk. That credential can expire, be revoked, or be accidentally exposed.
+**cctide never queries Anthropic and never sends your data anywhere.** Most Claude usage trackers need a credential to query the API on your behalf — a browser session cookie extracted from DevTools, a session key stored in the system Keychain, or an OAuth token read from disk. That credential can expire, be revoked, or be accidentally exposed.
 
-cctide takes a different approach: it reads the JSONL transcripts that Claude Code writes locally to `~/.claude`, and computes everything in-process. No cookie, no token, no Keychain entry, no API call — there is nothing to leak or rotate.
+cctide takes a different approach: it reads the JSONL transcripts that Claude Code writes locally to `~/.claude`, and computes everything in-process. No cookie, no token, no Keychain entry, no Anthropic API call — there is nothing to leak or rotate. (The one exception is the update check to GitHub, which carries no usage data.)
 
 The trade-off: because cctide never queries Anthropic's servers, the session and weekly percentages require a one-time manual calibration from `/usage`. After that, they track automatically.
 
@@ -206,7 +225,7 @@ The trade-off: because cctide never queries Anthropic's servers, the session and
 
 ## Privacy
 
-cctide is **100% local**. It reads `~/.claude` files on disk and renders everything in-process. No data is sent anywhere, no network request is ever made, no analytics are collected.
+cctide reads `~/.claude` files on disk and renders everything in-process. No usage data is sent anywhere and no analytics are collected. The only outbound request is the periodic update check to GitHub (to fetch `latest.json` and, if you choose to install, the new build) — it carries none of your data.
 
 ---
 
