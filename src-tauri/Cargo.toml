@@ -1,6 +1,6 @@
 [package]
 name = "cctide"
-version = "0.2.3"
+version = "0.2.4"
 description = "Menu-bar gauge for Claude Code usage"
 authors = ["Jordan TEMIM"]
 license = "MIT"
