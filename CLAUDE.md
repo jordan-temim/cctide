@@ -163,3 +163,84 @@ npx tsc --noEmit           # frontend typecheck
 
 Builds are **unsigned** (no Apple/Windows code-signing certificate) — see
 `README.md` for the first-launch steps users must take.
+
+## Releases & auto-update
+
+### CI pipeline (`.github/workflows/release.yml`)
+
+Triggered by pushing a `v*` tag (real release) or `workflow_dispatch` (test run,
+no GitHub Release). The pipeline is a single chain so a bad commit can't ship:
+
+```
+lint ──┬──► build-frontend ──► build-mac ──┬──► release
+security ──┘                └──► build-win ──┘
+```
+
+- `lint` / `security` run the existing `lint.yml` / `security.yml` via
+  `workflow_call` (they expose it alongside their own push/PR triggers). They are
+  **blocking** — builds don't start unless both pass. Those workflows use
+  minimal **per-job** `permissions` (not `read-all`), otherwise `workflow_call`
+  fails because the caller can't grant more than it holds. `release.yml` grants
+  `contents: write` (create the release) + `security-events: write` (gitleaks /
+  semgrep).
+- `build-frontend` runs `npm run build` once on Ubuntu and uploads `dist/`. The
+  two OS build jobs download it and patch `beforeBuildCommand` to `""` via `jq`
+  so Tauri doesn't rebuild the frontend on the (slower, pricier) mac/win runners.
+- `build-mac` builds the universal target; `build-win` builds the MSI. Both copy
+  their outputs into a flat `upload/` dir before `upload-artifact` — otherwise
+  the action keeps the `dmg/` + `macos/` subdirs (least-common-ancestor
+  behaviour) and the release job's `artifacts/*.app.tar.gz` glob misses them. The
+  `cp` also fails loudly in the build job if an expected file is absent, instead
+  of the multi-path upload silently skipping it.
+- `release` (tag only) downloads both artifact sets, generates `latest.json`, and
+  publishes the GitHub Release with the `.dmg`, `.msi`, their `.sig`s, and
+  `latest.json` attached.
+
+### Signing & updater bundles
+
+Updates are verified with a **Tauri signing keypair** (separate from OS code
+signing, which we don't have). The keypair was generated once with
+`tauri signer generate`; the **public key** is in `tauri.conf.json`
+(`plugins.updater.pubkey`, compiled into every binary), the **private key** is the
+`TAURI_SIGNING_PRIVATE_KEY` GitHub Actions secret. Because the pubkey is baked
+into the binary, it **cannot change** without breaking updates for installed
+clients.
+
+`bundle.createUpdaterArtifacts: true` is what makes `tauri build` emit the
+`.app.tar.gz` (+ `.sig`) on macOS and the `.msi.sig` on Windows — without it the
+build only produces the installer and the updater has nothing to fetch. The
+updater downloads the `.app.tar.gz` / `.msi` (not the `.dmg`, which is
+install-only), so `latest.json`'s `darwin-universal` URL points at the
+`.app.tar.gz`.
+
+`latest.json` is served from the **latest** GitHub Release
+(`releases/latest/download/latest.json`), which is also the `endpoints` value in
+`tauri.conf.json`. Shape:
+
+```json
+{
+  "version": "v0.2.6",
+  "pub_date": "…Z",
+  "platforms": {
+    "darwin-universal": { "url": "…/cctide.app.tar.gz", "signature": "…" },
+    "windows-x86_64":   { "url": "…/cctide_x64.msi",    "signature": "…" }
+  }
+}
+```
+
+### Client behaviour (`lib.rs`, `maybe_check_update`)
+
+Checks run **at startup** (forced) and **on panel open** (throttled — frequent
+tray toggles don't spam checks). When a newer version is found it downloads
+silently and fires an OS notification ("quit and reopen to apply"); the update is
+applied on the next relaunch (we never force-restart). Guards:
+`UPDATE_CHECKING` (no concurrent downloads), `UPDATE_STAGED` (stop all checks
+once an update is downloaded and waiting), `UPDATE_LAST_CHECK` (throttle window).
+
+> The first version able to **receive** updates is the first release that shipped
+> a working signed `.app.tar.gz` + `latest.json`. Earlier installs must be
+> updated manually.
+
+> **Testing:** `UPDATE_THROTTLE` in `lib.rs` is temporarily set low (2 min) to
+> exercise the flow — revert to a production value (e.g. 1h) once verified. (There
+> is a matching `TODO` in the code.)

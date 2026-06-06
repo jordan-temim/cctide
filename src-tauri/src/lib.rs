@@ -10,6 +10,7 @@ mod rtk;
 mod scan;
 mod usage;
 
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use tauri::menu::{Menu, MenuItem};
@@ -252,6 +253,69 @@ fn set_calibration(
 // Window management
 // ---------------------------------------------------------------------------
 
+// --- Auto-update ------------------------------------------------------------
+// Checks run at startup and when the panel is opened, throttled so that
+// frequent panel toggles don't trigger repeated checks. Once an update is
+// downloaded it waits for the next relaunch, so we stop checking entirely.
+
+// TODO: revert to a longer throttle (e.g. 1h) after testing the update flow.
+const UPDATE_THROTTLE: std::time::Duration = std::time::Duration::from_secs(2 * 60);
+
+/// True while a check is in flight (prevents concurrent downloads).
+static UPDATE_CHECKING: AtomicBool = AtomicBool::new(false);
+/// True once an update has been downloaded and staged for the next relaunch.
+static UPDATE_STAGED: AtomicBool = AtomicBool::new(false);
+/// Unix timestamp (secs) of the last check; 0 means never checked.
+static UPDATE_LAST_CHECK: AtomicU64 = AtomicU64::new(0);
+
+/// Spawns an update check unless one is staged, already running, or the throttle
+/// window has not elapsed since the previous check. `force` bypasses the
+/// throttle (used for the startup check).
+fn maybe_check_update(app: &tauri::AppHandle, force: bool) {
+    if UPDATE_STAGED.load(Ordering::SeqCst) {
+        return;
+    }
+    let now = now_ts().max(0) as u64;
+    if !force {
+        let last = UPDATE_LAST_CHECK.load(Ordering::SeqCst);
+        if last != 0 && now.saturating_sub(last) < UPDATE_THROTTLE.as_secs() {
+            return;
+        }
+    }
+    // Claim the check slot; bail if another check is already running.
+    if UPDATE_CHECKING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    UPDATE_LAST_CHECK.store(now, Ordering::SeqCst);
+
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let staged = tauri::async_runtime::block_on(async {
+            let Ok(updater) = app.updater() else {
+                return false;
+            };
+            let Ok(Some(update)) = updater.check().await else {
+                return false;
+            };
+            let version = update.version.clone();
+            if update.download_and_install(|_, _| {}, || {}).await.is_ok() {
+                let _ = app
+                    .notification()
+                    .builder()
+                    .title("cctide updated")
+                    .body(format!("v{version} ready — quit and reopen to apply"))
+                    .show();
+                return true;
+            }
+            false
+        });
+        if staged {
+            UPDATE_STAGED.store(true, Ordering::SeqCst);
+        }
+        UPDATE_CHECKING.store(false, Ordering::SeqCst);
+    });
+}
+
 fn toggle_window(app: &tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
         if win.is_visible().unwrap_or(false) {
@@ -269,6 +333,8 @@ fn toggle_window(app: &tauri::AppHandle) {
                 let mut ist = state.icon_state.lock().expect("icon_state poisoned");
                 ist.acknowledged_tier = ist.current_tier;
             }
+            // Opportunistic, throttled update check on panel open.
+            maybe_check_update(app, false);
         }
     }
 }
@@ -361,25 +427,9 @@ pub fn run() {
                 let _ = app.notification().request_permission();
             }
 
-            // Background update check: download silently, notify when ready.
-            let update_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let Ok(updater) = update_handle.updater() else {
-                    return;
-                };
-                let Ok(Some(update)) = updater.check().await else {
-                    return;
-                };
-                let version = update.version.clone();
-                if update.download_and_install(|_, _| {}, || {}).await.is_ok() {
-                    let _ = update_handle
-                        .notification()
-                        .builder()
-                        .title("cctide updated")
-                        .body(format!("v{version} ready — quit and reopen to apply"))
-                        .show();
-                }
-            });
+            // Update check at startup; further checks happen (throttled) when the
+            // panel is opened. See maybe_check_update.
+            maybe_check_update(&app.handle().clone(), true);
 
             // Icon thread: renders the live CC-gauge tray icon and (macOS) drives
             // the blink-until-acknowledged alert. Ticks fast for smooth blinking;
