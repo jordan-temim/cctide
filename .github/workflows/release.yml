@@ -9,8 +9,42 @@ permissions:
   contents: write
 
 jobs:
+  lint:
+    uses: ./.github/workflows/lint.yml
+
+  security:
+    uses: ./.github/workflows/security.yml
+
+  build-frontend:
+    name: Build frontend
+    needs: [lint, security]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+          if-no-files-found: error
+
   build-mac:
     name: Build macOS (universal)
+    needs: [build-frontend]
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -35,6 +69,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Download frontend
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+
       - name: Check signing secret
         run: |
           if [ -z "$KEY" ]; then
@@ -45,7 +85,12 @@ jobs:
         env:
           KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
-      - name: Build
+      - name: Skip frontend rebuild
+        run: |
+          tmp=$(mktemp)
+          jq '.build.beforeBuildCommand = ""' src-tauri/tauri.conf.json > "$tmp" && mv "$tmp" src-tauri/tauri.conf.json
+
+      - name: Build app bundle
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -66,6 +111,7 @@ jobs:
 
   build-win:
     name: Build Windows
+    needs: [build-frontend]
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -88,7 +134,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Download frontend
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+
       - name: Check signing secret
+        shell: bash
         run: |
           if [ -z "$KEY" ]; then
             echo "ERROR: TAURI_SIGNING_PRIVATE_KEY is not set — updater bundle will not be generated"
@@ -98,13 +151,20 @@ jobs:
         env:
           KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
-      - name: Build
+      - name: Skip frontend rebuild
+        shell: bash
+        run: |
+          tmp=$(mktemp)
+          jq '.build.beforeBuildCommand = ""' src-tauri/tauri.conf.json > "$tmp" && mv "$tmp" src-tauri/tauri.conf.json
+
+      - name: Build app bundle
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build -- --bundles msi
 
       - name: List bundle output
+        shell: bash
         run: find src-tauri/target/release/bundle -type f | sort
 
       - name: Upload artifacts
@@ -122,11 +182,17 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
-      - name: Download artifacts
+      - name: Download macOS artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
-          merge-multiple: true
+          name: macos-artifacts
+          path: artifacts/
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-artifacts
+          path: artifacts/
 
       - name: List artifacts
         run: find artifacts -type f | sort
