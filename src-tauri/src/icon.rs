@@ -30,6 +30,7 @@ pub struct IconParams {
     pub blink_off: bool,          // macOS blink frame: drop the filled arc
     pub disabled: bool,           // tracking off: tracks only + diagonal slash
     pub shimmer_pos: Option<f64>, // 0..1 position of refresh-wave notch along arc
+    pub update_available: bool,   // draw a "U" inside the right C when an update waits
 }
 
 pub struct RenderedIcon {
@@ -99,15 +100,32 @@ struct C {
 }
 
 /// Colour+alpha for a single sample point, or transparent.
-fn sample(
-    px: f64,
-    py: f64,
-    g: &Geom,
-    cs: &[C; 2],
-    blink_off: bool,
-    disabled: bool,
-    shimmer_pos: Option<f64>,
-) -> [f64; 4] {
+fn sample(px: f64, py: f64, g: &Geom, cs: &[C; 2], p: &IconParams) -> [f64; 4] {
+    let blink_off = p.blink_off;
+    let disabled = p.disabled;
+    let shimmer_pos = p.shimmer_pos;
+    let update_available = p.update_available;
+    // Update indicator: a "U" centred inside the right C (drawn on top of the
+    // arc, unaffected by blink). Two vertical strokes + a bottom semicircle.
+    if update_available {
+        let ux = g.cx_right;
+        let uy = g.cy;
+        let hw = g.r * 0.28; // half-width / arc radius
+        let st = g.r * 0.09; // stroke half-thickness
+        let top = uy - g.r * 0.30;
+        let base = uy + g.r * 0.18; // verticals meet the arc centre here
+        let on_left = (px - (ux - hw)).abs() <= st && py >= top && py <= base;
+        let on_right = (px - (ux + hw)).abs() <= st && py >= top && py <= base;
+        let ad = ((px - ux).powi(2) + (py - base).powi(2)).sqrt();
+        let on_arc = (ad - hw).abs() <= st && py >= base;
+        if on_left || on_right || on_arc {
+            return if g.mono {
+                [0.0, 0.0, 0.0, 255.0]
+            } else {
+                [40.0, 120.0, 220.0, 255.0] // blue on Windows/Linux
+            };
+        }
+    }
     // Dev build indicator: small dot centred inside the right C.
     if cfg!(debug_assertions) {
         let dot_r = g.r * 0.13;
@@ -207,7 +225,7 @@ pub fn render(p: &IconParams) -> RenderedIcon {
                 for sx in 0..ss {
                     let fx = x as f64 + (sx as f64 + 0.5) / ss as f64;
                     let fy = y as f64 + (sy as f64 + 0.5) / ss as f64;
-                    let s = sample(fx, fy, &g, &cs, p.blink_off, p.disabled, p.shimmer_pos);
+                    let s = sample(fx, fy, &g, &cs, p);
                     r += s[0] * s[3];
                     gg += s[1] * s[3];
                     b += s[2] * s[3];
@@ -229,5 +247,45 @@ pub fn render(p: &IconParams) -> RenderedIcon {
         rgba,
         width: g.w,
         height: g.h,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base() -> IconParams {
+        IconParams {
+            session_fill: 0.5,
+            weekly_fill: 0.5,
+            session_tier: 0,
+            weekly_tier: 0,
+            blink_off: false,
+            disabled: false,
+            shimmer_pos: None,
+            update_available: false,
+        }
+    }
+
+    fn opaque_count(r: &RenderedIcon) -> usize {
+        r.rgba.chunks_exact(4).filter(|px| px[3] > 0).count()
+    }
+
+    #[test]
+    fn update_glyph_adds_opaque_pixels() {
+        let without = render(&base());
+        let with = render(&IconParams {
+            update_available: true,
+            ..base()
+        });
+        assert_eq!((without.width, without.height), (with.width, with.height));
+        assert_ne!(
+            without.rgba, with.rgba,
+            "the update U should change the rendered icon"
+        );
+        assert!(
+            opaque_count(&with) > opaque_count(&without),
+            "the update U should add opaque pixels"
+        );
     }
 }

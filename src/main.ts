@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
 
@@ -48,12 +48,18 @@ interface ModelUsage {
   model: string;
   tokens: number;
 }
+interface UpdateInfo {
+  version: string;
+  notes: string | null;
+  url: string;
+}
 interface PanelData {
   session: SessionUsage;
   weekly: WeeklyUsage;
   sessions: SessionCtx[];
   models: ModelUsage[];
   config: Config;
+  update: UpdateInfo | null;
 }
 interface Calibration {
   percent: number;
@@ -158,12 +164,58 @@ function setSegmentedBar(
 }
 
 // --- Rendering ---
+// --- Update banner ---------------------------------------------------------
+let currentUpdate: UpdateInfo | null = null;
+let updateStaged = false; // set once install succeeds; button becomes "Restart now"
+
+function renderUpdateBanner(update: UpdateInfo | null) {
+  currentUpdate = update;
+  const banner = $("update-banner");
+  if (!update || updateStaged) {
+    if (!updateStaged) banner.classList.add("hidden");
+    return;
+  }
+  banner.classList.remove("hidden");
+  $("update-text").textContent = `Update available: v${update.version}`;
+}
+
+function setupUpdate() {
+  const link = $<HTMLAnchorElement>("update-changelog");
+  link.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (currentUpdate) openUrl(currentUpdate.url).catch(() => {});
+  });
+
+  const btn = $<HTMLButtonElement>("update-install");
+  btn.addEventListener("click", async () => {
+    if (updateStaged) {
+      await invoke("restart_app");
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = "Installing…";
+    try {
+      await invoke("install_update");
+      updateStaged = true;
+      btn.disabled = false;
+      btn.textContent = "Restart now";
+      $("update-text").textContent = "Update ready";
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = "Install";
+      $("update-text").textContent = `Update failed: ${e}`;
+    }
+  });
+}
+
 async function refresh() {
   const [data, rtk] = await Promise.all([
     invoke<PanelData>("get_panel_data"),
     invoke<RtkSavings | null>("get_rtk_savings"),
   ]);
   const { session, weekly, sessions, models, config: cfg } = data;
+
+  renderUpdateBanner(data.update);
 
   const sessionWindow = session.window_start
     ? `started ${hhmm(session.window_start)} · resets ${hhmm(session.reset_at)}`
@@ -474,6 +526,7 @@ function setupTracking(cfg: Config) {
 
 window.addEventListener("DOMContentLoaded", async () => {
   setupAutoResize();
+  setupUpdate();
   setupCollapse("sessions-toggle", "sessions-body");
   setupCollapse("models-toggle", "models-body");
   setupCollapse("memory-toggle", "memory-body", loadMemory);

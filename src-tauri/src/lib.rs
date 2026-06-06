@@ -10,7 +10,7 @@ mod rtk;
 mod scan;
 mod usage;
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use tauri::menu::{Menu, MenuItem};
@@ -44,6 +44,8 @@ struct AppState {
     models: models::Models,
     /// Cached sysinfo handle; refreshed only when needed.
     system: Mutex<sysinfo::System>,
+    /// Latest update found by the background check, if any (drives the banner).
+    available_update: Mutex<Option<UpdateInfo>>,
 }
 
 /// (Re)parses JSONL files that changed on disk.
@@ -93,6 +95,7 @@ struct PanelData {
     sessions: Vec<context::SessionCtx>,
     models: Vec<ModelUsage>,
     config: Config,
+    update: Option<UpdateInfo>,
 }
 
 #[tauri::command]
@@ -125,12 +128,19 @@ fn get_panel_data(state: tauri::State<AppState>) -> PanelData {
         .map(|(model, tokens)| ModelUsage { model, tokens })
         .collect();
 
+    let update = state
+        .available_update
+        .lock()
+        .expect("available_update poisoned")
+        .clone();
+
     PanelData {
         session,
         weekly,
         sessions: active,
         models,
         config: cfg,
+        update,
     }
 }
 
@@ -254,102 +264,119 @@ fn set_calibration(
 // ---------------------------------------------------------------------------
 
 // --- Auto-update ------------------------------------------------------------
-// Checks run at startup and when the panel is opened, throttled so that
-// frequent panel toggles don't trigger repeated checks. Once an update is
-// downloaded it waits for the next relaunch, so we stop checking entirely.
+// Detection is check-only: at startup and every UPDATE_CHECK_INTERVAL we query
+// the updater and, if a newer version exists, record it so the panel banner and
+// the tray "U" can surface it. The user triggers the download+install via the
+// `install_update` command; once installed it waits for the next relaunch.
 
-// TODO: revert to a longer throttle (e.g. 1h) after testing the update flow.
-const UPDATE_THROTTLE: std::time::Duration = std::time::Duration::from_secs(2 * 60);
+const UPDATE_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2 * 60 * 60);
 
-/// True while a check is in flight (prevents concurrent downloads).
+/// True while a check is in flight (prevents concurrent checks).
 static UPDATE_CHECKING: AtomicBool = AtomicBool::new(false);
 /// True once an update has been downloaded and staged for the next relaunch.
 static UPDATE_STAGED: AtomicBool = AtomicBool::new(false);
-/// Unix timestamp (secs) of the last check; 0 means never checked.
-static UPDATE_LAST_CHECK: AtomicU64 = AtomicU64::new(0);
+/// True once a newer version has been found (drives the tray "U" indicator).
+static UPDATE_AVAILABLE: AtomicBool = AtomicBool::new(false);
 
-/// Spawns an update check unless one is staged, already running, or the throttle
-/// window has not elapsed since the previous check. `force` bypasses the
-/// throttle (used for the startup check).
-fn maybe_check_update(app: &tauri::AppHandle, force: bool) {
+/// An available update, surfaced to the panel banner.
+#[derive(Clone, serde::Serialize)]
+struct UpdateInfo {
+    version: String,
+    notes: Option<String>,
+    url: String,
+}
+
+/// Spawns a check-only update query: records any newer version in app state and
+/// notifies once per version. Never downloads — the user installs explicitly.
+fn spawn_update_check(app: &tauri::AppHandle) {
     if UPDATE_STAGED.load(Ordering::SeqCst) {
         return;
     }
-    let now = now_ts().max(0) as u64;
-    if !force {
-        let last = UPDATE_LAST_CHECK.load(Ordering::SeqCst);
-        if last != 0 && now.saturating_sub(last) < UPDATE_THROTTLE.as_secs() {
-            return;
-        }
-    }
-    // Claim the check slot; bail if another check is already running.
     if UPDATE_CHECKING.swap(true, Ordering::SeqCst) {
         return;
     }
-    UPDATE_LAST_CHECK.store(now, Ordering::SeqCst);
-
     let app = app.clone();
     std::thread::spawn(move || {
-        update_log(&format!(
-            "check start (force={force}, current={})",
-            app.package_info().version
-        ));
-        let staged = tauri::async_runtime::block_on(async {
-            let updater = match app.updater() {
-                Ok(u) => u,
-                Err(e) => {
-                    update_log(&format!("updater() failed: {e}"));
-                    return false;
-                }
+        tauri::async_runtime::block_on(async {
+            let Ok(updater) = app.updater() else {
+                return;
             };
-            let update = match updater.check().await {
-                Ok(Some(u)) => u,
+            match updater.check().await {
+                Ok(Some(update)) => {
+                    let version = update.version.clone();
+                    // The version comes from latest.json (not individually signed),
+                    // so only embed it in the changelog URL if it looks like a plain
+                    // version string; otherwise link to the generic releases page.
+                    let url = if version
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'))
+                    {
+                        format!("https://github.com/jordan-temim/cctide/releases/tag/v{version}")
+                    } else {
+                        "https://github.com/jordan-temim/cctide/releases/latest".to_string()
+                    };
+                    let info = UpdateInfo {
+                        notes: update.body.clone(),
+                        url,
+                        version: version.clone(),
+                    };
+                    let is_new = {
+                        let state = app.state::<AppState>();
+                        let mut slot = state
+                            .available_update
+                            .lock()
+                            .expect("available_update poisoned");
+                        let is_new = slot.as_ref().map(|u| u.version != version).unwrap_or(true);
+                        *slot = Some(info);
+                        is_new
+                    };
+                    UPDATE_AVAILABLE.store(true, Ordering::SeqCst);
+                    if is_new {
+                        let _ = app
+                            .notification()
+                            .builder()
+                            .title("cctide update available")
+                            .body(format!("v{version} — open cctide to install"))
+                            .show();
+                    }
+                }
+                // Up to date: clear any previously-found update (e.g. a pulled release).
                 Ok(None) => {
-                    update_log("check ok: already up to date");
-                    return false;
+                    UPDATE_AVAILABLE.store(false, Ordering::SeqCst);
+                    *app.state::<AppState>()
+                        .available_update
+                        .lock()
+                        .expect("available_update poisoned") = None;
                 }
-                Err(e) => {
-                    update_log(&format!("check failed: {e}"));
-                    return false;
-                }
-            };
-            let version = update.version.clone();
-            update_log(&format!("update found: v{version}, downloading"));
-            match update.download_and_install(|_, _| {}, || {}).await {
-                Ok(()) => {
-                    update_log(&format!("install ok: v{version} staged"));
-                    let _ = app
-                        .notification()
-                        .builder()
-                        .title("cctide updated")
-                        .body(format!("v{version} ready — quit and reopen to apply"))
-                        .show();
-                    true
-                }
-                Err(e) => {
-                    update_log(&format!("install failed: {e}"));
-                    false
-                }
+                Err(_) => {}
             }
         });
-        if staged {
-            UPDATE_STAGED.store(true, Ordering::SeqCst);
-        }
         UPDATE_CHECKING.store(false, Ordering::SeqCst);
     });
 }
 
-/// TEMP debug logging for the update flow — appends to /tmp/cctide-update.log.
-/// Remove once the auto-update flow is verified.
-fn update_log(msg: &str) {
-    use std::io::Write;
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/tmp/cctide-update.log")
-    {
-        let _ = writeln!(f, "{} {msg}", chrono::Utc::now().to_rfc3339());
-    }
+/// Downloads and installs the available update (user-initiated). Staged for the
+/// next relaunch on success.
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "no update available".to_string())?;
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    UPDATE_STAGED.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
+/// Relaunches the app to apply a staged update.
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.restart();
 }
 
 fn toggle_window(app: &tauri::AppHandle) {
@@ -369,8 +396,6 @@ fn toggle_window(app: &tauri::AppHandle) {
                 let mut ist = state.icon_state.lock().expect("icon_state poisoned");
                 ist.acknowledged_tier = ist.current_tier;
             }
-            // Opportunistic, throttled update check on panel open.
-            maybe_check_update(app, false);
         }
     }
 }
@@ -393,6 +418,7 @@ pub fn run() {
             config_cache: Mutex::new(config::load()),
             models: models::load(),
             system: Mutex::new(sysinfo::System::new()),
+            available_update: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             get_panel_data,
@@ -402,6 +428,8 @@ pub fn run() {
             set_calibration,
             set_notifications,
             set_tracking,
+            install_update,
+            restart_app,
         ])
         .setup(|app| {
             // Menu bar app: no Dock icon (macOS).
@@ -463,9 +491,14 @@ pub fn run() {
                 let _ = app.notification().request_permission();
             }
 
-            // Update check at startup; further checks happen (throttled) when the
-            // panel is opened. See maybe_check_update.
-            maybe_check_update(&app.handle().clone(), true);
+            // Update check at startup, then every UPDATE_CHECK_INTERVAL while the
+            // app runs. Detection only — the user installs from the panel banner.
+            let uh = app.handle().clone();
+            spawn_update_check(&uh);
+            std::thread::spawn(move || loop {
+                std::thread::sleep(UPDATE_CHECK_INTERVAL);
+                spawn_update_check(&uh);
+            });
 
             // Icon thread: renders the live CC-gauge tray icon and (macOS) drives
             // the blink-until-acknowledged alert. Ticks fast for smooth blinking;
@@ -478,8 +511,11 @@ pub fn run() {
                 let mut tick: u64 = 0;
                 let mut fills = (0.0_f64, 0.0_f64);
                 let mut tiers = (0u8, 0u8);
-                let mut last_sig: Option<(i32, i32, u8, u8, bool, i32)> = None;
+                let mut last_sig: Option<(i32, i32, u8, u8, bool, i32, bool)> = None;
                 let mut last_disabled: Option<bool> = None;
+                // Update flag used in the last disabled render, so the "U" can
+                // still appear while tracking is off.
+                let mut last_disabled_update: Option<bool> = None;
                 let mut shimmer_start: Option<u64> = None;
 
                 loop {
@@ -491,7 +527,8 @@ pub fn run() {
                         .clone();
 
                     if !cfg.tracking_enabled {
-                        if last_disabled != Some(true) {
+                        let upd = UPDATE_AVAILABLE.load(Ordering::SeqCst);
+                        if last_disabled != Some(true) || last_disabled_update != Some(upd) {
                             let rendered = icon::render(&icon::IconParams {
                                 session_fill: 0.0,
                                 weekly_fill: 0.0,
@@ -500,6 +537,7 @@ pub fn run() {
                                 blink_off: false,
                                 disabled: true,
                                 shimmer_pos: None,
+                                update_available: upd,
                             });
                             let img = tauri::image::Image::new_owned(
                                 rendered.rgba,
@@ -510,6 +548,7 @@ pub fn run() {
                                 let _ = tray.set_icon(Some(img));
                             }
                             last_disabled = Some(true);
+                            last_disabled_update = Some(upd);
                             last_sig = None;
                         }
                         tick = tick.wrapping_add(1);
@@ -598,6 +637,7 @@ pub fn run() {
                             }
                         };
 
+                        let update_available = UPDATE_AVAILABLE.load(Ordering::SeqCst);
                         let sig = (
                             (fills.0 * 200.0) as i32,
                             (fills.1 * 200.0) as i32,
@@ -605,6 +645,7 @@ pub fn run() {
                             tiers.1,
                             blink_off,
                             shimmer_sig,
+                            update_available,
                         );
                         if last_sig != Some(sig) {
                             let rendered = icon::render(&icon::IconParams {
@@ -615,6 +656,7 @@ pub fn run() {
                                 blink_off,
                                 disabled: false,
                                 shimmer_pos,
+                                update_available,
                             });
                             if let Some(tray) = ih.tray_by_id("cctide-tray") {
                                 let img = tauri::image::Image::new_owned(

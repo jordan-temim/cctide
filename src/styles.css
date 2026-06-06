@@ -469,6 +469,52 @@ button.primary:hover {
   filter: brightness(1.1);
 }
 
+/* Update banner */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--panel); /* fallback for webviews without color-mix */
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+}
+.update-text {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.update-link {
+  font-size: 11px;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.update-link:hover {
+  text-decoration: underline;
+}
+.update-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.update-btn:hover {
+  filter: brightness(1.1);
+}
+.update-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* Footer note */
 .foot {
   display: flex;
