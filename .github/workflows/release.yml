@@ -38,10 +38,11 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-dmg
+          name: macos-artifacts
           path: |
             src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
-            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg.sig
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
           if-no-files-found: error
 
   build-win:
@@ -71,7 +72,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-msi
+          name: windows-artifacts
           path: |
             src-tauri/target/release/bundle/msi/*.msi
             src-tauri/target/release/bundle/msi/*.msi.sig
@@ -91,22 +92,22 @@ jobs:
       - name: Generate latest.json
         run: |
           VERSION="${GITHUB_REF_NAME}"
-          DMG_NAME=$(ls artifacts/*.dmg | xargs basename)
-          DMG_SIG=$(cat artifacts/*.dmg.sig)
+          TARGZ_NAME=$(ls artifacts/*.app.tar.gz | xargs basename)
+          TARGZ_SIG=$(cat artifacts/*.app.tar.gz.sig)
           MSI_NAME=$(ls artifacts/*.msi | xargs basename)
           MSI_SIG=$(cat artifacts/*.msi.sig)
           jq -n \
             --arg version "$VERSION" \
             --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --arg dmg_url "https://github.com/jordan-temim/cctide/releases/download/$VERSION/$DMG_NAME" \
-            --arg dmg_sig "$DMG_SIG" \
+            --arg mac_url "https://github.com/jordan-temim/cctide/releases/download/$VERSION/$TARGZ_NAME" \
+            --arg mac_sig "$TARGZ_SIG" \
             --arg msi_url "https://github.com/jordan-temim/cctide/releases/download/$VERSION/$MSI_NAME" \
             --arg msi_sig "$MSI_SIG" \
             '{
               version: $version,
               pub_date: $pub_date,
               platforms: {
-                "darwin-universal": { url: $dmg_url, signature: $dmg_sig },
+                "darwin-universal": { url: $mac_url, signature: $mac_sig },
                 "windows-x86_64": { url: $msi_url, signature: $msi_sig }
               }
             }' > artifacts/latest.json
