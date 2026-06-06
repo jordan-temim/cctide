@@ -48,6 +48,11 @@ interface ModelUsage {
   model: string;
   tokens: number;
 }
+interface DayBucket {
+  label: string;
+  weighted: number;
+  is_today: boolean;
+}
 interface UpdateInfo {
   version: string;
   notes: string | null;
@@ -58,6 +63,7 @@ interface PanelData {
   weekly: WeeklyUsage;
   sessions: SessionCtx[];
   models: ModelUsage[];
+  chart: DayBucket[];
   config: Config;
   update: UpdateInfo | null;
 }
@@ -164,6 +170,62 @@ function setSegmentedBar(
 }
 
 // --- Rendering ---
+
+function renderChart(buckets: DayBucket[]) {
+  const container = $<HTMLDivElement>("chart-container");
+  container.innerHTML = "";
+  if (buckets.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "Set a weekly reset date to see activity";
+    container.appendChild(empty);
+    return;
+  }
+
+  const W = 356, H = 80, PAD_B = 16, BAR_GAP = 5;
+  const n = buckets.length;
+  const barW = (W - BAR_GAP * (n - 1)) / n;
+  const maxW = Math.max(...buckets.map((b) => b.weighted), 1);
+
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("width", "100%");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+
+  for (let i = 0; i < buckets.length; i++) {
+    const b = buckets[i];
+    const x = i * (barW + BAR_GAP);
+    const barH = Math.max(b.weighted > 0 ? 4 : 0, ((H - PAD_B) * b.weighted) / maxW);
+    const y = H - PAD_B - barH;
+
+    const rect = document.createElementNS(svgNS, "rect");
+    rect.setAttribute("x", x.toFixed(1));
+    rect.setAttribute("y", y.toFixed(1));
+    rect.setAttribute("width", barW.toFixed(1));
+    rect.setAttribute("height", barH.toFixed(1));
+    rect.setAttribute("rx", "3");
+    rect.setAttribute("fill", b.is_today ? "var(--accent)" : "var(--neutral)");
+    rect.setAttribute("opacity", b.weighted > 0 ? "1" : "0.25");
+
+    const title = document.createElementNS(svgNS, "title");
+    title.textContent = `${b.label}: ${fmt(b.weighted)} tokens`;
+    rect.appendChild(title);
+
+    const text = document.createElementNS(svgNS, "text");
+    text.setAttribute("x", (x + barW / 2).toFixed(1));
+    text.setAttribute("y", (H - 3).toFixed(1));
+    text.setAttribute("text-anchor", "middle");
+    text.setAttribute("font-size", "9");
+    text.setAttribute("fill", b.is_today ? "var(--accent)" : "var(--muted)");
+    text.textContent = b.label;
+
+    svg.appendChild(rect);
+    svg.appendChild(text);
+  }
+
+  container.appendChild(svg);
+}
+
 // --- Update banner ---------------------------------------------------------
 let currentUpdate: UpdateInfo | null = null;
 let updateStaged = false; // set once install succeeds; button becomes "Restart now"
@@ -213,7 +275,7 @@ async function refresh() {
     invoke<PanelData>("get_panel_data"),
     invoke<RtkSavings | null>("get_rtk_savings"),
   ]);
-  const { session, weekly, sessions, models, config: cfg } = data;
+  const { session, weekly, sessions, models, chart, config: cfg } = data;
 
   renderUpdateBanner(data.update);
 
@@ -326,6 +388,7 @@ async function refresh() {
     }
   }
 
+  renderChart(chart);
   updateLastUpdated();
 
   // RTK — greyed out (but visible) when not installed.
@@ -527,6 +590,7 @@ function setupTracking(cfg: Config) {
 window.addEventListener("DOMContentLoaded", async () => {
   setupAutoResize();
   setupUpdate();
+  setupCollapse("chart-toggle", "chart-body");
   setupCollapse("sessions-toggle", "sessions-body");
   setupCollapse("models-toggle", "models-body");
   setupCollapse("memory-toggle", "memory-body", loadMemory);

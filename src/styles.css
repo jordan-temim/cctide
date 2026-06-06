@@ -515,6 +515,16 @@ button.primary:hover {
   cursor: default;
 }
 
+/* Activity chart */
+.chart-container {
+  margin-top: 8px;
+  width: 100%;
+}
+.chart-container svg {
+  display: block;
+  overflow: visible;
+}
+
 /* Footer note */
 .foot {
   display: flex;

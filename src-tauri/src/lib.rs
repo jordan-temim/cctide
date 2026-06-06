@@ -89,11 +89,19 @@ struct ModelUsage {
 }
 
 #[derive(serde::Serialize)]
+struct DayBucket {
+    label: String,
+    weighted: f64,
+    is_today: bool,
+}
+
+#[derive(serde::Serialize)]
 struct PanelData {
     session: usage::SessionUsage,
     weekly: usage::WeeklyUsage,
     sessions: Vec<context::SessionCtx>,
     models: Vec<ModelUsage>,
+    chart: Vec<DayBucket>,
     config: Config,
     update: Option<UpdateInfo>,
 }
@@ -128,6 +136,36 @@ fn get_panel_data(state: tauri::State<AppState>) -> PanelData {
         .map(|(model, tokens)| ModelUsage { model, tokens })
         .collect();
 
+    let today_start = {
+        use chrono::{Local, TimeZone};
+        let today = Local::now().date_naive();
+        Local
+            .from_local_datetime(&today.and_hms_opt(0, 0, 0).unwrap())
+            .earliest()
+            .map(|d| d.timestamp())
+            .unwrap_or(0)
+    };
+    let chart: Vec<DayBucket> = if let Some(ws) = weekly.week_start {
+        use chrono::{Local, TimeZone};
+        usage::daily_buckets(&points, ws, now)
+            .into_iter()
+            .map(|(day_ts, weighted)| {
+                let label = Local
+                    .timestamp_opt(day_ts, 0)
+                    .single()
+                    .map(|d| d.format("%a").to_string())
+                    .unwrap_or_else(|| "?".to_string());
+                DayBucket {
+                    label,
+                    weighted,
+                    is_today: day_ts == today_start,
+                }
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     let update = state
         .available_update
         .lock()
@@ -139,6 +177,7 @@ fn get_panel_data(state: tauri::State<AppState>) -> PanelData {
         weekly,
         sessions: active,
         models,
+        chart,
         config: cfg,
         update,
     }

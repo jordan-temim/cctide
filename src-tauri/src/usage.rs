@@ -183,6 +183,36 @@ pub fn weekly_usage(points: &[Point], cfg: &Config, now: i64) -> WeeklyUsage {
     }
 }
 
+/// Returns 7 daily buckets, one per calendar day starting from `week_start`.
+/// Each entry is `(midnight_local_ts, weighted_sum)`.
+pub fn daily_buckets(points: &[Point], week_start: i64, now: i64) -> Vec<(i64, f64)> {
+    use chrono::{Duration, Local, TimeZone};
+
+    let ws_dt = Local
+        .timestamp_opt(week_start, 0)
+        .single()
+        .unwrap_or_else(|| Local::now());
+    let ws_date = ws_dt.date_naive();
+
+    let mut buckets = Vec::with_capacity(7);
+    for i in 0i64..7 {
+        let day_date = ws_date + Duration::days(i);
+        let day_start = Local
+            .from_local_datetime(&day_date.and_hms_opt(0, 0, 0).unwrap())
+            .earliest()
+            .map(|d| d.timestamp())
+            .unwrap_or(week_start + i * 86400);
+        let day_end = day_start + 86400;
+        let sum: f64 = points
+            .iter()
+            .filter(|p| p.ts >= day_start && p.ts < day_end && p.ts <= now)
+            .map(|p| p.weighted)
+            .sum();
+        buckets.push((day_start, sum));
+    }
+    buckets
+}
+
 /// Derives the budget (weighted tokens) from a declared % and the window's
 /// current consumption: `budget = K_now / (percent/100)`.
 pub fn budget_from_percent(weighted_now: f64, percent: f64) -> f64 {
@@ -472,6 +502,72 @@ mod tests {
         assert_eq!(w.weighted_tokens, 300.0);
         assert!(w.week_start.is_some());
         assert!(w.next_reset_at.is_some());
+    }
+
+    // --- daily_buckets ---
+
+    #[test]
+    fn daily_buckets_returns_seven_entries() {
+        // week_start = 2026-01-05 noon UTC → stable across UTC±12 timezones
+        let week_start = 1_736_078_400i64; // 2026-01-05 12:00:00 UTC
+        let now = week_start + 6 * 86400 + 3600; // 6 days + 1 h later
+        let buckets = daily_buckets(&[], week_start, now);
+        assert_eq!(buckets.len(), 7);
+    }
+
+    #[test]
+    fn daily_buckets_sums_points_in_correct_day() {
+        use chrono::{Local, TimeZone};
+        // Anchor on a known date; we'll query local-midnight boundaries ourselves.
+        let week_start = 1_736_078_400i64; // 2026-01-05 12:00:00 UTC
+        let now = week_start + 4 * 86400;
+
+        // Build one bucket via daily_buckets to learn what day_start[0] actually is.
+        let empty_buckets = daily_buckets(&[], week_start, now);
+        let day0_start = empty_buckets[0].0;
+        let day1_start = empty_buckets[1].0;
+        let day2_start = empty_buckets[2].0;
+
+        // Place points at noon of days 0, 1, 2 (guaranteed inside those buckets).
+        let p0 = pt(day0_start + 43200, 10.0); // day 0 noon
+        let p1a = pt(day1_start + 21600, 20.0); // day 1 morning
+        let p1b = pt(day1_start + 64800, 30.0); // day 1 evening
+        let p2 = pt(day2_start + 43200, 5.0); // day 2 noon
+
+        let points = vec![p0, p1a, p1b, p2];
+        let buckets = daily_buckets(&points, week_start, now);
+
+        assert!((buckets[0].1 - 10.0).abs() < 1e-9, "day 0");
+        assert!((buckets[1].1 - 50.0).abs() < 1e-9, "day 1 sum");
+        assert!((buckets[2].1 - 5.0).abs() < 1e-9, "day 2");
+        assert_eq!(buckets[3].1, 0.0, "day 3 empty");
+    }
+
+    #[test]
+    fn daily_buckets_excludes_future_points() {
+        let week_start = 1_736_078_400i64;
+        let empty_buckets = daily_buckets(&[], week_start, week_start + 7 * 86400);
+        let day3_start = empty_buckets[3].0;
+
+        // now = noon of day 2 → day 3 point is in the future
+        let now = day3_start - 3600;
+        let future_pt = pt(day3_start + 43200, 99.0);
+        let buckets = daily_buckets(&[future_pt], week_start, now);
+        assert_eq!(buckets[3].1, 0.0, "future point must not appear in day 3");
+    }
+
+    #[test]
+    fn daily_buckets_point_on_day_boundary_goes_to_correct_day() {
+        let week_start = 1_736_078_400i64;
+        let empty_buckets = daily_buckets(&[], week_start, week_start + 7 * 86400);
+        let day1_start = empty_buckets[1].0;
+
+        // Point exactly at day1_start belongs to day 1, not day 0.
+        let now = week_start + 7 * 86400;
+        let boundary_pt = pt(day1_start, 42.0);
+        let buckets = daily_buckets(&[boundary_pt], week_start, now);
+        assert_eq!(buckets[0].1, 0.0, "day 0 must be empty");
+        assert!((buckets[1].1 - 42.0).abs() < 1e-9, "day 1 must contain boundary point");
     }
 
     #[test]
