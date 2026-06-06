@@ -206,7 +206,8 @@ jobs:
 
       - name: Generate latest.json
         run: |
-          VERSION="${GITHUB_REF_NAME}"
+          TAG="${GITHUB_REF_NAME}"          # e.g. v0.2.8 — used in asset URLs
+          VERSION="${TAG#v}"                # e.g. 0.2.8 — must be plain semver
           TARGZ_NAME=$(ls artifacts/*.app.tar.gz | xargs basename)
           TARGZ_SIG=$(cat artifacts/*.app.tar.gz.sig)
           MSI_NAME=$(ls artifacts/*.msi | xargs basename)
@@ -214,9 +215,9 @@ jobs:
           jq -n \
             --arg version "$VERSION" \
             --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --arg mac_url "https://github.com/jordan-temim/cctide/releases/download/$VERSION/$TARGZ_NAME" \
+            --arg mac_url "https://github.com/jordan-temim/cctide/releases/download/$TAG/$TARGZ_NAME" \
             --arg mac_sig "$TARGZ_SIG" \
-            --arg msi_url "https://github.com/jordan-temim/cctide/releases/download/$VERSION/$MSI_NAME" \
+            --arg msi_url "https://github.com/jordan-temim/cctide/releases/download/$TAG/$MSI_NAME" \
             --arg msi_sig "$MSI_SIG" \
             '{
               version: $version,
