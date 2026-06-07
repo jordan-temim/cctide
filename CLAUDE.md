@@ -12,23 +12,16 @@ A macOS menu-bar / Windows system-tray app that shows Claude Code usage,
 similar to `claude.ai/settings/usage`, but **100% local — it never calls the
 Anthropic API**. Built with **Tauri v2** (Rust backend + web UI).
 
-Panel contents:
-1. **Session (5h)** — 15-segment fuel-gauge bar (each segment ≈ 6.7%), rolling 5-hour window.
-2. **Weekly limit** — 15-segment fuel-gauge bar, anchored on a user-entered reset date.
-3. **Open sessions** — each active session's context-window fill (e.g. 150k/200k).
-4. **Memory** — read-only viewer of the active sessions' project memory files.
-5. **RTK** — tokens saved (only shown if the `rtk` binary is installed).
-6. **System notifications** — toggle (in section header) + the three configurable
-   **alert levels** (default 33 / 66 / 90 %). The section title is set dynamically
-   at startup to "macOS notifications" or "Windows notifications" via `navigator.userAgent`.
-   The toggle is a pill identical to the tracking toggle in the app header; clicking
-   it does not expand/collapse the section.
-7. **Calibrate** — date picker + % fields to anchor the session/weekly bars.
-8. **Weekly models** — breakdown of token consumption per model in the current window.
+The panel is organized into **four tabs** (Usage, Settings, Analytics, Extras):
 
-**Header controls.** Top-right of the panel: last-refresh timestamp + a **tracking toggle** (pause/resume all data refresh and icon updates; when off, the tray icon shows a diagonal slash over the empty C's).
+1. **Usage tab** — **Session (5h)** (15-segment fuel-gauge bar, rolling 5-hour window), **Weekly limit** (15-segment fuel-gauge bar, anchored to user-entered reset date), and **Open sessions** (each active session's context-window fill, e.g. 150k/200k).
+2. **Settings tab** — **Calibrate** (date picker + % fields to anchor the session/weekly bars), and **System notifications** (toggle + three configurable alert levels, default 33 / 66 / 90 %).
+3. **Analytics tab** — **Weekly window** (chart of token consumption per model in the current 7-day window), and **Memory** (read-only viewer of active sessions' project memory files).
+4. **Extras tab** — **RTK** (tokens saved, only shown if the `rtk` binary is installed).
 
-**Unified alert levels.** The three levels (default 33/66/90%, in `alert_levels`)
+**Header controls.** Top-right of the panel: last-refresh timestamp + a **tracking toggle** (pause/resume all data refresh and icon updates; when off, the tray icon shows a diagonal slash over the empty C's). Below the header: four **tab buttons** (Usage, Settings, Analytics, Extras) to switch between sections.
+
+**Unified alert levels.** The three levels (default 33/66/90%, configured in Settings tab under "System notifications")
 drive everything at once — the session/weekly **segment colours**, the **tray icon**,
 and the **OS notifications**. `level_for()` in `config.rs` maps a % to a level 0..3.
 
@@ -37,10 +30,14 @@ usage. As usage crosses the levels it escalates: on macOS the icon blinks (faste
 per level) until the panel is opened (acknowledged), re-arming when a higher level
 is reached; on Windows each C is tinted green→orange→red. The icon reacts
 independently of the notifications toggle (gated only by `dynamic_icon`).
-Rendered in `icon.rs`, driven by a ~400 ms thread in `lib.rs` that also fires the
-notifications (`notify.rs`, once per level crossing, gated by
-`notifications_enabled`). macOS notifications need permission (requested at
-startup) and only surface reliably from the installed build.
+Rendered in `icon.rs`, driven by a ticker thread in `tick.rs` (every
+`refresh_secs`, default 60 s) via `do_tick()`, which also fires notifications
+(`notify.rs`, once per level crossing, gated by `notifications_enabled`).
+`do_tick` is also called immediately — in a spawned thread — after each mutation
+(via commands like `set_calibration`, `set_tracking`, `set_notifications`) so the icon and panel
+update without waiting for the next tick. The shimmer animation (5 frames ×
+400 ms sweep) plays on every `do_tick` call. macOS notifications need permission
+(requested at startup) and only surface reliably from the installed build.
 
 **Dev builds** show a small dot at the centre of the right C (black on macOS,
 orange on Windows/Linux), compiled in via `cfg!(debug_assertions)` and absent
@@ -69,7 +66,7 @@ Everything is read from `~/.claude`:
 Pricing and model metadata are **not** in `~/.claude` — they ship with the app at
 [`models.json`](models.json).
 
-A background ticker thread (spawned in `lib.rs::run`) re-evaluates usage every
+A background ticker thread (spawned in `lib.rs` via `tick::start_ticker()`) re-evaluates usage every
 `refresh_secs` and fires native notifications via `notify.rs` when a threshold is
 crossed — independently of whether the panel is open. It is edge-triggered: one
 notification per crossing, re-armed once the bar drops back below the threshold.
@@ -128,14 +125,28 @@ plans. If the user changes plans, they restart the two-step calibration.
 ## Project layout (repo root)
 
 ```
-src/                  frontend (Vite + vanilla TS) — index.html, main.ts, styles.css
+src/                  Frontend (Vite + vanilla TS)
+  index.html
+  main.ts             App entry point + tab routing + event listener
+  styles.css
+  tab-usage.ts        Usage tab: session/weekly bars + open sessions
+  tab-settings.ts     Settings tab: calibration + notification levels
+  tab-analytics.ts    Analytics tab: weekly window chart + memory viewer
+  tab-extras.ts       Extras tab: RTK integration
+  types.ts            Shared TypeScript types (PanelData, Config, etc.)
+  update.ts           Update banner + install/restart logic
+  utils.ts            DOM helpers ($, updateLastUpdated)
 src-tauri/
   Cargo.toml          Rust manifest
   build.rs            Tauri build script
   tauri.conf.json     Tauri configuration (bundle ID, window, permissions)
   src/
-    lib.rs            Tauri commands + tray + popup window wiring
+    lib.rs            Tauri plugins, tray, popup window, module wiring
     main.rs           binary entry point
+    commands.rs       Tauri command handlers (invoke → Rust)
+    state.rs          AppState struct + shared mutable state
+    tick.rs           background ticker thread (refresh loop + notifications)
+    update_svc.rs     update check + install + restart
     scan.rs           JSONL discovery + parsing + mtime cache
     usage.rs          5h window + weekly calibration math
     context.rs        per-session context window
@@ -228,10 +239,10 @@ install-only), so `latest.json`'s `darwin-universal` URL points at the
 }
 ```
 
-### Client behaviour (`lib.rs`)
+### Client behaviour (`update_svc.rs` + `update.ts`)
 
 Updates are **user-initiated**, not silent. Detection is **check-only**:
-`spawn_update_check` runs at startup and then every `UPDATE_CHECK_INTERVAL` (2h)
+`spawn_update_check` (backend) runs at startup and then every `UPDATE_CHECK_INTERVAL` (2h)
 via a background thread. When a newer version is found it records an `UpdateInfo`
 (version, release notes, GitHub release-tag URL) in `AppState.available_update`,
 sets `UPDATE_AVAILABLE`, and fires an OS notification **once per version**

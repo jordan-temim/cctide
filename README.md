@@ -32,20 +32,18 @@ is the update check to GitHub (see [Updates](#updates)) — no usage data is sen
 
 ## What it shows
 
-| Panel section                     | What it tracks                                                                                     |
-| --------------------------------- | -------------------------------------------------------------------------------------------------- |
-| **Session (5h)**                  | Rolling 5-hour quota consumption                                                                   |
-| **Weekly limit**                  | Cumulative usage since your reset date                                                             |
-| **Calibrate**                     | Anchor the bars to `/usage` once; they track on their own after                                    |
-| **macOS / Windows notifications** | Toggle + three configurable alert levels — drive segment colours, tray icon, and OS notifications  |
-| **Open sessions**                 | Each active Claude Code process — context fill (X / 200k)                                          |
-| **Weekly models**                 | Per-model token breakdown for the current week                                                     |
-| **Memory**                        | Active sessions' project memory files                                                              |
-| **RTK**                           | Tokens saved (shown only if `rtk` is installed)                                                    |
+The panel is organized into **four tabs**:
+
+| Tab | Sections | What it tracks |
+| --- | --- | --- |
+| **Usage** | Session (5h), Weekly limit, Open sessions | Rolling 5-hour quota, cumulative weekly usage, each active Claude Code process' context fill (X / 200k) |
+| **Settings** | Calibrate, System notifications | Anchor the bars to `/usage` once; configure three alert levels — drive segment colours, tray icon, and OS notifications |
+| **Analytics** | Weekly window, Memory | Per-model token breakdown for the current week; active sessions' project memory files |
+| **Extras** | RTK | Tokens saved (shown only if `rtk` is installed) |
 
 The session and weekly bars are **15-segment fuel gauges**. The tray icon is live: two C-shapes fill with session (left) and weekly (right) usage. On macOS they blink at an escalating rate as levels are crossed. On Windows each C is tinted green → orange → red.
 
-Every 30 seconds, when cctide re-reads the local JSONL files, a small notch briefly sweeps both C arcs — a visual confirmation that the data just refreshed. The notch is a transparent gap on macOS and a grey dip on Windows; it completes in about 2 seconds and has no effect on the displayed values.
+Every 60 seconds (configurable via `refresh_secs`), cctide re-reads the local JSONL files and a small notch briefly sweeps both C arcs — a visual confirmation that the data just refreshed. The same sweep also plays when you save a calibration, toggle tracking, or update alert levels. The notch is a transparent gap on macOS and a grey dip on Windows; it completes in about 2 seconds and has no effect on the displayed values.
 
 ---
 
@@ -187,7 +185,7 @@ This automatically captures your plan's actual quota size — Pro users get a sm
 
 ### How consumption is weighted
 
-Tokens are weighted by Anthropic's published per-model pricing (input / output / cache-write rates), captured **2026-05-30**. **Cache reads are excluded** — Anthropic's own rate-limit metering doesn't count them, and including them caused usage to balloon with conversation length.
+Tokens are weighted by Anthropic's published per-model pricing (input / output / cache-write rates), captured **2026-06-03**. **Cache reads are excluded** — Anthropic's own rate-limit metering doesn't count them, and including them caused usage to balloon with conversation length.
 
 The weights live in `models.json` at the app root (compiled into the binary; nothing is written to `~/.claude`). Edit it and rebuild if pricing changes. Only the ratios matter — calibration absorbs the absolute scale.
 
@@ -240,14 +238,15 @@ cctide is built with **[Tauri v2](https://tauri.app)**: a Rust backend embedded 
 - Reads and parses `~/.claude` files directly on disk (JSONL transcripts, session files, memory files)
 - Computes usage windows, context fill, and model totals in-process
 - Exposes results to the frontend via typed Tauri commands (`invoke`)
-- Runs a background ticker thread (~400ms) for live tray icon updates and threshold notifications
+- Runs a background ticker thread (every 60 s by default) via `do_tick()` for live tray icon updates and threshold notifications; mutations trigger an immediate extra `do_tick` for instant feedback
 - Persists app config (calibration anchors, alert levels, settings) to the OS config dir via `config.rs`
 
 **Frontend (TypeScript — `src/`):**
 
-- Polls the Rust backend every 30 seconds via `invoke` calls
+- Organized into separate tab modules: `tab-usage`, `tab-settings`, `tab-analytics`, `tab-extras`
+- Listens to `refresh` events emitted by the backend ticker; uses `invoke` only for mutations and lazy section loads (memory)
 - Renders the segmented gauge bars, open session context bars, and model breakdown
-- No framework — vanilla TypeScript with direct DOM manipulation
+- No framework — vanilla TypeScript with direct DOM manipulation and tab routing
 
 **Model data (`models.json`):**
 
@@ -301,8 +300,20 @@ Examples: `feat: add weekly models breakdown` · `fix(scan): dedupe by message i
 
 ```
 src/                  Frontend (Vite + vanilla TypeScript)
+  main.ts             App entry point + tab routing
+  tab-usage.ts        Usage tab (session/weekly bars + open sessions)
+  tab-settings.ts     Settings tab (calibration + notifications)
+  tab-analytics.ts    Analytics tab (chart + memory)
+  tab-extras.ts       Extras tab (RTK)
+  types.ts            Shared TypeScript types
+  update.ts           Update logic
+  utils.ts            DOM helpers
 src-tauri/src/
-  lib.rs              Tauri commands, tray, popup window
+  lib.rs              Tauri plugins, tray, window, module wiring
+  commands.rs         Tauri command handlers
+  state.rs            Shared app state
+  tick.rs             Background ticker (refresh loop)
+  update_svc.rs       Update check/install/restart
   scan.rs             JSONL discovery, parsing, mtime cache + dedup
   usage.rs            5h window + weekly calibration math
   context.rs          Per-session context window fill

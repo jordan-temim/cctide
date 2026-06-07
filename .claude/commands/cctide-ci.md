@@ -29,25 +29,25 @@ cd src-tauri && cargo clippy --fix --allow-dirty --all-targets -- -D warnings
 ```
 Then re-run the check. Report remaining errors with file:line references.
 
-### 3. tsc
+### 4. tsc
 ```
 npx tsc --noEmit
 ```
 Report errors with file:line references. Cannot auto-fix.
 
-### 4. cargo audit
+### 5. cargo audit
 ```
 cd src-tauri && cargo audit
 ```
 Warnings (unmaintained GTK3 Tauri transitive deps) are expected and non-blocking. Only fail on `error:` lines.
 
-### 5. npm audit
+### 6. npm audit
 ```
 npm audit --audit-level=high
 ```
 Fail only on high/critical.
 
-### 6. cargo deny (if installed)
+### 7. cargo deny (if installed)
 ```
 cargo deny --manifest-path src-tauri/Cargo.toml check --config deny.toml licenses sources bans
 ```
@@ -55,13 +55,13 @@ cargo deny --manifest-path src-tauri/Cargo.toml check --config deny.toml license
 `src-tauri/`, so without it cargo deny falls back to defaults and licenses fail.
 Skip with a note if `cargo deny` is not installed.
 
-### 7. gitleaks (if installed)
+### 8. gitleaks (if installed)
 ```
 gitleaks detect --source . --redact
 ```
 Skip with a note if not installed. Failure = secret detected, must fix manually.
 
-### 8. semgrep (if installed)
+### 9. semgrep (if installed)
 ```
 semgrep scan --config p/rust --config p/typescript --config p/javascript --error .
 ```

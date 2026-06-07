@@ -9,10 +9,17 @@ Focus on files that have business logic worth testing:
 - `scan.rs` — JSONL parsing, deduplication, `model_totals`
 - `config.rs` — `level_for`, `sanitize_levels`, `parse_config`
 - `models.rs` — model lookup (longest-match), fallback to default
+- `context.rs` — cwd deduplication, liveness check logic
+- `memory.rs` — symlink path resolution (`canonicalize`), file filtering
 
-Ignore `lib.rs`, `main.rs`, `notify.rs` — wiring/IPC/threading code without
-testable pure logic (the auto-update flow there is integration-only: it needs the
-live Tauri updater + network, so it's not unit-testable without heavy mocking).
+Ignore these files — application-layer wiring and IPC/threading code without
+testable pure logic:
+- `lib.rs`, `main.rs` — Tauri builder wiring
+- `commands.rs` — thin IPC translation layer (Tauri state machinery makes unit-testing impractical)
+- `tick.rs` — ticker loop + threading
+- `update_svc.rs` — auto-update flow (integration-only: needs live Tauri updater + network)
+- `state.rs` — shared state bag + trivial helpers
+- `notify.rs` — OS notification dispatch
 
 `icon.rs` is rendering code, but its pure `render()` output is worth a smoke test
 — there's already one asserting the update "U" adds opaque pixels. Add similar
