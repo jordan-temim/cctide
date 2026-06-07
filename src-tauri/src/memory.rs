@@ -110,11 +110,12 @@ mod tests {
 
     #[test]
     fn memory_sort_puts_memory_md_first() {
-        let mut files = vec![
+        let mut files = [
             PathBuf::from("/memory/notes.md"),
             PathBuf::from("/memory/MEMORY.md"),
             PathBuf::from("/memory/archive.md"),
-        ];
+        ]
+        .to_vec();
 
         files.sort_by_key(|p| {
             let name = p
@@ -142,11 +143,12 @@ mod tests {
 
     #[test]
     fn memory_sort_alphabetical_when_no_memory_md() {
-        let mut files = vec![
+        let mut files = [
             PathBuf::from("/memory/zebra.md"),
             PathBuf::from("/memory/apple.md"),
             PathBuf::from("/memory/banana.md"),
-        ];
+        ]
+        .to_vec();
 
         files.sort_by_key(|p| {
             let name = p

@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn sort_by_context_tokens_descending() {
-        let mut sessions = vec![
+        let mut sessions = [
             SessionCtx {
                 session_id: "low".to_string(),
                 cwd: "/a".to_string(),
@@ -187,7 +187,8 @@ mod tests {
                 context_limit: 200_000,
                 percent: None,
             },
-        ];
+        ]
+        .to_vec();
 
         sessions.sort_by_key(|s| std::cmp::Reverse(s.context_tokens));
 

@@ -387,7 +387,7 @@ mod tests {
     #[test]
     fn all_models_have_200k_context_by_default() {
         let m = Models::default();
-        for (_, entry) in &m.models {
+        for entry in m.models.values() {
             assert_eq!(
                 entry.context_window, 200_000,
                 "all models should have 200k context"
