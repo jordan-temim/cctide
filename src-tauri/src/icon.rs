@@ -3,14 +3,13 @@
 //!
 //! Two platform renders (tray icons differ a lot across OSes):
 //! - **macOS**: wide, monochrome *template* (auto-tinted). Fill is shown by a
-//!   thick filled arc over a thin track; alert is conveyed by blinking (the
-//!   filled arc is dropped on the `blink_off` frame).
+//!   thick filled arc over a thin track; alert tiers change the bar colour.
 //! - **Windows/Linux**: square, colour. Each C's filled arc is tinted by its
-//!   alert tier (neutral/green/orange/red) over a grey track; no blink.
+//!   alert tier (neutral/green/orange/red) over a grey track.
 //!
-//! **Dev indicator**: in debug builds (`cfg!(debug_assertions)`), a small dot
-//! is rendered at the geometric centre of the right C — black on macOS,
-//! orange on Windows/Linux. Compiled away entirely in release builds.
+//! **Dev indicator**: in debug builds (`cfg!(debug_assertions)`), a small "D"
+//! glyph is rendered inside the left C — black on macOS, orange on
+//! Windows/Linux. Compiled away entirely in release builds.
 //!
 //! Geometry mirrors `scripts/gen-icon.mjs` (arc 40°..320°, two C centres,
 //! 3×3 supersampling). Zero external deps.
@@ -27,7 +26,6 @@ pub struct IconParams {
     pub weekly_fill: f64,         // 0..1
     pub session_tier: u8,         // 0..3
     pub weekly_tier: u8,          // 0..3
-    pub blink_off: bool,          // macOS blink frame: drop the filled arc
     pub disabled: bool,           // tracking off: tracks only + diagonal slash
     pub shimmer_pos: Option<f64>, // 0..1 position of refresh-wave notch along arc
     pub update_available: bool,   // draw a "U" inside the right C when an update waits
@@ -101,12 +99,10 @@ struct C {
 
 /// Colour+alpha for a single sample point, or transparent.
 fn sample(px: f64, py: f64, g: &Geom, cs: &[C; 2], p: &IconParams) -> [f64; 4] {
-    let blink_off = p.blink_off;
     let disabled = p.disabled;
     let shimmer_pos = p.shimmer_pos;
     let update_available = p.update_available;
-    // Update indicator: a "U" centred inside the right C (drawn on top of the
-    // arc, unaffected by blink). Two vertical strokes + a bottom semicircle.
+    // Update indicator: a "U" centred inside the right C. Two vertical strokes + a bottom semicircle.
     if update_available {
         let ux = g.cx_right;
         let uy = g.cy;
@@ -126,12 +122,19 @@ fn sample(px: f64, py: f64, g: &Geom, cs: &[C; 2], p: &IconParams) -> [f64; 4] {
             };
         }
     }
-    // Dev build indicator: small dot centred inside the right C.
+    // Dev build indicator: a "D" glyph in the left C (session side).
+    // Placed in the left C so it never conflicts with the "U" update glyph in the right C.
+    // Shape: left vertical spine + right semicircle, arc centred at the spine's midpoint.
     if cfg!(debug_assertions) {
-        let dot_r = g.r * 0.13;
-        let dx = px - g.cx_right;
-        let dy = py - g.cy;
-        if dx * dx + dy * dy <= dot_r * dot_r {
+        let spine_x = g.cx_left - g.r * 0.19; // centred at cx_left (spine_x + hh/2 = cx_left)
+        let hh = g.r * 0.38; // arc radius = half-height → same 0.76r total height as "U"
+        let st = g.r * 0.09; // stroke half-thickness (matches "U" glyph)
+        let on_spine = (px - spine_x).abs() <= st
+            && py >= (g.cy - hh)
+            && py <= (g.cy + hh);
+        let ad = ((px - spine_x).powi(2) + (py - g.cy).powi(2)).sqrt();
+        let on_arc = (ad - hh).abs() <= st && px >= spine_x;
+        if on_spine || on_arc {
             return if g.mono {
                 [0.0, 0.0, 0.0, 255.0]
             } else {
@@ -171,8 +174,7 @@ fn sample(px: f64, py: f64, g: &Geom, cs: &[C; 2], p: &IconParams) -> [f64; 4] {
         }
 
         if g.mono {
-            let suppress_fill = blink_off || disabled;
-            let on_fill = !suppress_fill && t <= c.fill && (dist - g.r).abs() <= g.t / 2.0;
+            let on_fill = !disabled && t <= c.fill && (dist - g.r).abs() <= g.t / 2.0;
             let on_track = (dist - g.r).abs() <= g.t * 0.22;
             if on_fill || on_track {
                 return [0.0, 0.0, 0.0, 255.0];
@@ -260,7 +262,6 @@ mod tests {
             weekly_fill: 0.5,
             session_tier: 0,
             weekly_tier: 0,
-            blink_off: false,
             disabled: false,
             shimmer_pos: None,
             update_available: false,
@@ -287,5 +288,61 @@ mod tests {
             opaque_count(&with) > opaque_count(&without),
             "the update U should add opaque pixels"
         );
+    }
+
+    #[test]
+    fn shimmer_changes_rendered_icon() {
+        let without = render(&base());
+        let with_shimmer = render(&IconParams {
+            shimmer_pos: Some(0.5),
+            ..base()
+        });
+        assert_ne!(
+            without.rgba, with_shimmer.rgba,
+            "shimmer notch at 0.5 should alter the icon"
+        );
+    }
+
+    #[test]
+    fn disabled_renders_differently_from_active() {
+        let active = render(&base());
+        let disabled = render(&IconParams {
+            disabled: true,
+            session_fill: 0.0,
+            weekly_fill: 0.0,
+            ..base()
+        });
+        assert_ne!(
+            active.rgba, disabled.rgba,
+            "disabled icon should differ from active icon"
+        );
+        // Disabled icon must have some opaque pixels (the diagonal slash + tracks).
+        assert!(
+            opaque_count(&disabled) > 0,
+            "disabled icon should not be fully transparent"
+        );
+    }
+
+    #[test]
+    fn empty_fills_produce_valid_icon() {
+        let r = render(&IconParams {
+            session_fill: 0.0,
+            weekly_fill: 0.0,
+            ..base()
+        });
+        // Even with no fill the track arcs should be visible.
+        assert!(opaque_count(&r) > 0);
+    }
+
+    #[test]
+    fn full_fills_produce_valid_icon() {
+        let r = render(&IconParams {
+            session_fill: 1.0,
+            weekly_fill: 1.0,
+            session_tier: 3,
+            weekly_tier: 3,
+            ..base()
+        });
+        assert!(opaque_count(&r) > 0);
     }
 }

@@ -30,8 +30,6 @@ use crate::models::Models;
 pub struct Point {
     pub ts: i64, // Unix seconds
     pub weighted: f64,
-    /// Raw total tokens (all categories) — for the "Models used" breakdown.
-    pub tokens: u64,
     pub model: String,
     /// Dedup key: fnv1a(message.id + requestId). Unique per API response.
     pub key: u64,
@@ -189,7 +187,6 @@ fn parse_file(path: &Path, pricing: &Models) -> (Vec<Point>, Option<LastCtx>) {
         points.push(Point {
             ts,
             weighted,
-            tokens: context_tokens,
             model,
             key,
         });
@@ -329,128 +326,11 @@ impl ScanCache {
             .max_by_key(|(_, f)| f.mtime)
             .and_then(|(_, f)| f.last_ctx.clone())
     }
-
-    /// Token totals per model across all deduplicated points, sorted descending.
-    /// When `since` is provided, only points at or after that Unix timestamp are
-    /// counted (used to scope to the weekly window).
-    pub fn model_totals(&self, since: Option<i64>) -> Vec<(String, u64)> {
-        let mut totals: HashMap<String, u64> = HashMap::new();
-        for p in self.points.values() {
-            if p.model.is_empty() || p.model.starts_with('<') {
-                continue;
-            }
-            if since.is_some_and(|start| p.ts < start) {
-                continue;
-            }
-            *totals.entry(p.model.clone()).or_insert(0) += p.tokens;
-        }
-        let mut out: Vec<(String, u64)> = totals.into_iter().collect();
-        out.sort_by_key(|(_, tokens)| std::cmp::Reverse(*tokens));
-        out
-    }
-
-    /// Test helper: build a cache from a flat list of points.
-    #[cfg(test)]
-    pub fn from_points(points: Vec<Point>) -> Self {
-        let mut cache = ScanCache::default();
-        let path = PathBuf::from("__test__");
-        let deduped: HashMap<u64, Point> = points.iter().map(|p| (p.key, p.clone())).collect();
-        cache.files.insert(
-            path,
-            CachedFile {
-                mtime: 0,
-                size: 0,
-                points,
-                last_ctx: None,
-            },
-        );
-        cache.points = deduped;
-        cache
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn pt(model: &str, tokens: u64, ts: i64) -> Point {
-        Point {
-            ts,
-            weighted: tokens as f64,
-            tokens,
-            model: model.to_string(),
-            key: ts as u64 ^ tokens,
-        }
-    }
-
-    // --- model_totals filtering ---
-
-    #[test]
-    fn filters_empty_model_name() {
-        let cache =
-            ScanCache::from_points(vec![pt("", 500, 1000), pt("claude-sonnet-4-6", 300, 2000)]);
-        let totals = cache.model_totals(None);
-        assert_eq!(totals.len(), 1);
-        assert_eq!(totals[0].0, "claude-sonnet-4-6");
-    }
-
-    #[test]
-    fn filters_synthetic_model() {
-        let cache = ScanCache::from_points(vec![
-            pt("<synthetic>", 999, 1000),
-            pt("claude-opus-4-8", 100, 2000),
-        ]);
-        let totals = cache.model_totals(None);
-        assert_eq!(totals.len(), 1);
-        assert_eq!(totals[0].0, "claude-opus-4-8");
-    }
-
-    #[test]
-    fn aggregates_same_model_across_points() {
-        let cache = ScanCache::from_points(vec![
-            pt("claude-sonnet-4-6", 100, 1000),
-            pt("claude-sonnet-4-6", 200, 2000),
-        ]);
-        let totals = cache.model_totals(None);
-        assert_eq!(totals.len(), 1);
-        assert_eq!(totals[0].1, 300);
-    }
-
-    #[test]
-    fn sorted_by_tokens_descending() {
-        let cache = ScanCache::from_points(vec![
-            pt("claude-haiku-4-5", 10, 1000),
-            pt("claude-opus-4-8", 9999, 2000),
-            pt("claude-sonnet-4-6", 500, 3000),
-        ]);
-        let totals = cache.model_totals(None);
-        assert_eq!(totals[0].0, "claude-opus-4-8");
-        assert_eq!(totals[1].0, "claude-sonnet-4-6");
-        assert_eq!(totals[2].0, "claude-haiku-4-5");
-    }
-
-    #[test]
-    fn since_filter_excludes_older_points() {
-        let since = 5000i64;
-        let cache = ScanCache::from_points(vec![
-            pt("claude-sonnet-4-6", 999, since - 1), // excluded
-            pt("claude-sonnet-4-6", 100, since),     // included
-            pt("claude-opus-4-8", 200, since + 100), // included
-        ]);
-        let totals = cache.model_totals(Some(since));
-        let sonnet = totals.iter().find(|(m, _)| m == "claude-sonnet-4-6");
-        assert_eq!(sonnet.unwrap().1, 100);
-    }
-
-    #[test]
-    fn since_none_includes_all() {
-        let cache = ScanCache::from_points(vec![
-            pt("claude-sonnet-4-6", 100, 0),
-            pt("claude-sonnet-4-6", 200, 999_999_999),
-        ]);
-        let totals = cache.model_totals(None);
-        assert_eq!(totals[0].1, 300);
-    }
 
     // --- deduplication via all_points ---
 
@@ -462,14 +342,12 @@ mod tests {
         let p1 = Point {
             ts: 1000,
             weighted: 50.0,
-            tokens: 50,
             model: "claude-sonnet-4-6".to_string(),
             key: shared_key,
         };
         let p2 = Point {
             ts: 2000,
             weighted: 50.0,
-            tokens: 50,
             model: "claude-sonnet-4-6".to_string(),
             key: shared_key,
         };
@@ -492,8 +370,9 @@ mod tests {
             },
         );
         cache.rebuild_points();
-        let totals = cache.model_totals(None);
-        assert_eq!(totals[0].1, 50);
+        let pts = cache.all_points();
+        assert_eq!(pts.len(), 1);
+        assert!((pts[0].weighted - 50.0).abs() < 1e-9);
     }
 
     // --- encode_cwd ---
@@ -542,5 +421,159 @@ mod tests {
     fn parse_ts_invalid_returns_none() {
         assert!(parse_ts("not-a-date").is_none());
         assert!(parse_ts("").is_none());
+    }
+
+    // --- rebuild_points (cross-file dedup) ---
+
+    #[test]
+    fn rebuild_points_dedup_across_files() {
+        // Multiple files, some with same keys.
+        let mut cache = ScanCache::default();
+
+        // File 1: points with keys 1, 2
+        cache.files.insert(
+            PathBuf::from("file1"),
+            CachedFile {
+                mtime: 100,
+                size: 1000,
+                points: vec![
+                    Point {
+                        ts: 1000,
+                        weighted: 10.0,
+                        model: "sonnet".to_string(),
+                        key: 1,
+                    },
+                    Point {
+                        ts: 1100,
+                        weighted: 20.0,
+                        model: "sonnet".to_string(),
+                        key: 2,
+                    },
+                ],
+                last_ctx: None,
+            },
+        );
+
+        // File 2: keys 2 (dup), 3 (new). Key 2 appears in both; whichever file is
+        // iterated first by the HashMap wins (order is non-deterministic).
+        cache.files.insert(
+            PathBuf::from("file2"),
+            CachedFile {
+                mtime: 200,
+                size: 2000,
+                points: vec![
+                    Point {
+                        ts: 2000,
+                        weighted: 99.0,
+                        model: "sonnet".to_string(),
+                        key: 2,
+                    },
+                    Point {
+                        ts: 2100,
+                        weighted: 30.0,
+                        model: "sonnet".to_string(),
+                        key: 3,
+                    },
+                ],
+                last_ctx: None,
+            },
+        );
+
+        cache.rebuild_points();
+
+        // Should have 3 unique keys: 1, 2, 3.
+        assert_eq!(cache.points.len(), 3);
+        // Key 2 must be exactly one of the two candidates (20.0 from file1 or 99.0 from
+        // file2). Which one wins depends on HashMap iteration order.
+        let key2 = cache.points[&2].weighted;
+        assert!(
+            (key2 - 20.0).abs() < 1e-9 || (key2 - 99.0).abs() < 1e-9,
+            "key 2 should be 20.0 or 99.0, got {key2}"
+        );
+    }
+
+    // --- last_ctx_for_session_or_cwd ---
+
+    #[test]
+    fn last_ctx_fallback_to_cwd_when_session_not_found() {
+        let mut cache = ScanCache::default();
+        let session_id = "unknown-sess";
+        let cwd = "/home/user/proj";
+        let encoded_cwd = encode_cwd(cwd);
+
+        // Set up a file in the project folder for the cwd.
+        let project_path = PathBuf::from(format!("/root/.claude/projects/{encoded_cwd}/session1.jsonl"));
+        cache.files.insert(
+            project_path,
+            CachedFile {
+                mtime: 123,
+                size: 500,
+                points: vec![],
+                last_ctx: Some(LastCtx {
+                    model: "opus".to_string(),
+                    context_tokens: 50_000,
+                }),
+            },
+        );
+
+        let ctx = cache.last_ctx_for_session_or_cwd(session_id, cwd);
+        assert!(ctx.is_some());
+        let ctx_unwrapped = ctx.unwrap();
+        assert_eq!(ctx_unwrapped.model, "opus");
+        assert_eq!(ctx_unwrapped.context_tokens, 50_000);
+    }
+
+    #[test]
+    fn jsonl_for_session_finds_by_filename() {
+        let mut cache = ScanCache::default();
+        let session_id = "abc123";
+
+        cache.files.insert(
+            PathBuf::from(format!("/root/.claude/projects/proj1/{session_id}.jsonl")),
+            CachedFile {
+                mtime: 100,
+                size: 500,
+                points: vec![],
+                last_ctx: None,
+            },
+        );
+        cache.files.insert(
+            PathBuf::from("/root/.claude/projects/proj2/other.jsonl"),
+            CachedFile {
+                mtime: 100,
+                size: 500,
+                points: vec![],
+                last_ctx: None,
+            },
+        );
+
+        let path = cache.jsonl_for_session(session_id);
+        assert!(path.is_some());
+        assert!(path.unwrap().to_string_lossy().contains(session_id));
+    }
+
+    #[test]
+    fn project_dir_for_cwd_finds_by_encoded_name() {
+        let mut cache = ScanCache::default();
+        let cwd = "/Users/alice/my project/src";
+        let encoded = encode_cwd(cwd);
+
+        let project_dir = PathBuf::from(format!("/root/.claude/projects/{encoded}"));
+        let file_path = project_dir.join("session1.jsonl");
+
+        cache.files.insert(
+            file_path,
+            CachedFile {
+                mtime: 100,
+                size: 500,
+                points: vec![],
+                last_ctx: None,
+            },
+        );
+
+        let found = cache.project_dir_for_cwd(cwd);
+        assert!(found.is_some());
+        let found_path = found.unwrap();
+        assert!(found_path.to_string_lossy().contains(&encoded));
     }
 }

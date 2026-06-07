@@ -48,12 +48,12 @@ fn percent_from(
     if let (Some(c1), Some(c2)) = (cal_1, cal_2) {
         if c1.budget > 0.0 && c2.budget > 0.0 {
             // Recover token counts from budget = tokens / (percent/100)
-            let k2 = c1.budget * (c1.percent / 100.0); // newer calibration
-            let k1 = c2.budget * (c2.percent / 100.0); // older calibration
-            let dk = k2 - k1;
+            let k_new = c1.budget * (c1.percent / 100.0); // newer calibration
+            let k_old = c2.budget * (c2.percent / 100.0); // older calibration
+            let dk = k_new - k_old;
             if dk.abs() >= MIN_TOKEN_DIFF {
                 let a = (c1.percent - c2.percent) / dk;
-                let b = c2.percent - a * k1;
+                let b = c2.percent - a * k_old;
                 return (Some((a * weighted + b).clamp(0.0, 200.0)), true);
             }
         }
@@ -184,9 +184,14 @@ pub fn weekly_usage(points: &[Point], cfg: &Config, now: i64) -> WeeklyUsage {
 }
 
 /// Returns 7 daily buckets, one per calendar day starting from `week_start`.
-/// Each entry is `(midnight_local_ts, weighted_sum)`.
-pub fn daily_buckets(points: &[Point], week_start: i64, now: i64) -> Vec<(i64, f64)> {
+/// Each entry is `(midnight_local_ts, per_model_weighted_sums)`.
+pub fn daily_buckets(
+    points: &[Point],
+    week_start: i64,
+    now: i64,
+) -> Vec<(i64, std::collections::HashMap<String, f64>)> {
     use chrono::{Duration, Local, TimeZone};
+    use std::collections::HashMap;
 
     let ws_dt = Local
         .timestamp_opt(week_start, 0)
@@ -203,12 +208,16 @@ pub fn daily_buckets(points: &[Point], week_start: i64, now: i64) -> Vec<(i64, f
             .map(|d| d.timestamp())
             .unwrap_or(week_start + i * 86400);
         let day_end = day_start + 86400;
-        let sum: f64 = points
+
+        let mut by_model: HashMap<String, f64> = HashMap::new();
+        for p in points
             .iter()
             .filter(|p| p.ts >= day_start && p.ts < day_end && p.ts <= now)
-            .map(|p| p.weighted)
-            .sum();
-        buckets.push((day_start, sum));
+            .filter(|p| !p.model.is_empty() && !p.model.starts_with('<'))
+        {
+            *by_model.entry(p.model.clone()).or_insert(0.0) += p.weighted;
+        }
+        buckets.push((day_start, by_model));
     }
     buckets
 }
@@ -233,7 +242,6 @@ mod tests {
         Point {
             ts,
             weighted,
-            tokens: 1000,
             model: "claude-sonnet-4-6".to_string(),
             key: ts as u64,
         }
@@ -536,10 +544,43 @@ mod tests {
         let points = vec![p0, p1a, p1b, p2];
         let buckets = daily_buckets(&points, week_start, now);
 
-        assert!((buckets[0].1 - 10.0).abs() < 1e-9, "day 0");
-        assert!((buckets[1].1 - 50.0).abs() < 1e-9, "day 1 sum");
-        assert!((buckets[2].1 - 5.0).abs() < 1e-9, "day 2");
-        assert_eq!(buckets[3].1, 0.0, "day 3 empty");
+        let total = |i: usize| -> f64 { buckets[i].1.values().sum() };
+        assert!((total(0) - 10.0).abs() < 1e-9, "day 0");
+        assert!((total(1) - 50.0).abs() < 1e-9, "day 1 sum");
+        assert!((total(2) - 5.0).abs() < 1e-9, "day 2");
+        assert_eq!(total(3), 0.0, "day 3 empty");
+    }
+
+    #[test]
+    fn daily_buckets_filters_empty_and_synthetic_models() {
+        let week_start = 1_736_078_400i64;
+        let now = week_start + 7 * 86400;
+        let empty_buckets = daily_buckets(&[], week_start, now);
+        let day0_start = empty_buckets[0].0;
+
+        let points = vec![
+            Point {
+                ts: day0_start + 43200,
+                weighted: 100.0,
+                model: "<synthetic>".to_string(),
+                key: 1,
+            },
+            Point {
+                ts: day0_start + 43200,
+                weighted: 200.0,
+                model: String::new(),
+                key: 2,
+            },
+            Point {
+                ts: day0_start + 43200,
+                weighted: 50.0,
+                model: "claude-sonnet-4-6".to_string(),
+                key: 3,
+            },
+        ];
+        let buckets = daily_buckets(&points, week_start, now);
+        assert_eq!(buckets[0].1.len(), 1, "only real models");
+        assert!((buckets[0].1["claude-sonnet-4-6"] - 50.0).abs() < 1e-9);
     }
 
     #[test]
@@ -552,7 +593,11 @@ mod tests {
         let now = day3_start - 3600;
         let future_pt = pt(day3_start + 43200, 99.0);
         let buckets = daily_buckets(&[future_pt], week_start, now);
-        assert_eq!(buckets[3].1, 0.0, "future point must not appear in day 3");
+        assert_eq!(
+            buckets[3].1.values().sum::<f64>(),
+            0.0,
+            "future point must not appear in day 3"
+        );
     }
 
     #[test]
@@ -565,9 +610,13 @@ mod tests {
         let now = week_start + 7 * 86400;
         let boundary_pt = pt(day1_start, 42.0);
         let buckets = daily_buckets(&[boundary_pt], week_start, now);
-        assert_eq!(buckets[0].1, 0.0, "day 0 must be empty");
+        assert_eq!(
+            buckets[0].1.values().sum::<f64>(),
+            0.0,
+            "day 0 must be empty"
+        );
         assert!(
-            (buckets[1].1 - 42.0).abs() < 1e-9,
+            (buckets[1].1.values().sum::<f64>() - 42.0).abs() < 1e-9,
             "day 1 must contain boundary point"
         );
     }
@@ -613,5 +662,133 @@ mod tests {
         let s = session_usage(&points, &cfg, now);
         assert_eq!(s.weighted_tokens, 77.0);
         assert!(s.window_start.is_some());
+    }
+
+    // --- session multiple boundaries ---
+
+    #[test]
+    fn session_multiple_5h_windows_only_counts_latest() {
+        let now = 1_000_000;
+        let w1_anchor = now - 2 * FIVE_HOURS_SECS;
+        let w2_anchor = now - FIVE_HOURS_SECS + 3600;
+        let points = vec![
+            pt(w1_anchor, 100.0),
+            pt(w1_anchor + 1000, 50.0), // w1: 150 total (but window expired)
+            pt(w2_anchor, 200.0),       // w2: only this window is live
+            pt(w2_anchor + 1000, 100.0),
+        ];
+        let cfg = Config::default();
+        let s = session_usage(&points, &cfg, now);
+        // Only w2 window (most recent) is live: 200 + 100 = 300
+        assert_eq!(s.weighted_tokens, 300.0);
+    }
+
+    #[test]
+    fn session_reset_at_is_future() {
+        let now = 1_000_000;
+        let anchor = now - 1000;
+        let points = vec![pt(anchor, 50.0)];
+        let cfg = Config::default();
+        let s = session_usage(&points, &cfg, now);
+        assert!(s.reset_at.is_some());
+        let reset = s.reset_at.unwrap();
+        assert!(reset > now);
+        assert_eq!(reset, anchor + FIVE_HOURS_SECS);
+    }
+
+    // --- weekly boundary edge cases ---
+
+    #[test]
+    fn week_window_reset_date_exactly_now() {
+        // reset_date is exactly at now: step backward by 7d, then forward to get next.
+        let now = 1_000_000i64;
+        let reset_dt_str = "1970-01-08"; // This will be parsed relative to local tz
+        let result = week_window_from_reset(reset_dt_str, now);
+        assert!(result.is_some());
+        let (ws, next) = result.unwrap();
+        assert!(ws <= now);
+        assert!(next > now);
+        assert_eq!(next - ws, WEEK_SECS);
+    }
+
+    #[test]
+    fn week_window_with_datetime_including_seconds() {
+        // Test parsing of "%Y-%m-%dT%H:%M:%S" format
+        let now = 1_000_000i64;
+        let result = week_window_from_reset("1970-01-08T12:00:00", now);
+        assert!(result.is_some());
+        let (ws, next) = result.unwrap();
+        assert!(ws <= now);
+        assert_eq!(next - ws, WEEK_SECS);
+    }
+
+    // --- weighted_since boundary tests ---
+
+    #[test]
+    fn weighted_since_includes_boundaries() {
+        let from = 1_000i64;
+        let now = 2_000i64;
+        let points = vec![
+            pt(from, 10.0),     // boundary inclusive
+            pt(from + 500, 20.0),
+            pt(now, 30.0),      // boundary inclusive
+            pt(now + 1, 99.0),
+        ];
+        let w = weighted_since(&points, from, now);
+        assert_eq!(w, 60.0); // 10 + 20 + 30
+    }
+
+    #[test]
+    fn weighted_since_empty_window_returns_zero() {
+        let points = vec![
+            pt(100, 10.0),
+            pt(200, 20.0),
+        ];
+        let w = weighted_since(&points, 300, 400);
+        assert_eq!(w, 0.0);
+    }
+
+    // --- daily_buckets with mixed models ---
+
+    #[test]
+    fn daily_buckets_per_model_breakdown() {
+        let week_start = 1_736_078_400i64;
+        let now = week_start + 86400;
+        let empty_buckets = daily_buckets(&[], week_start, now);
+        let day0_start = empty_buckets[0].0;
+
+        let points = vec![
+            Point {
+                ts: day0_start + 43200,
+                weighted: 100.0,
+                model: "claude-opus-4-8".to_string(),
+                key: 1,
+            },
+            Point {
+                ts: day0_start + 43200,
+                weighted: 50.0,
+                model: "claude-sonnet-4-6".to_string(),
+                key: 2,
+            },
+            Point {
+                ts: day0_start + 50000,
+                weighted: 30.0,
+                model: "claude-opus-4-8".to_string(),
+                key: 3,
+            },
+        ];
+
+        let buckets = daily_buckets(&points, week_start, now);
+        let day0_models = &buckets[0].1;
+
+        assert_eq!(day0_models.len(), 2, "should have 2 models");
+        assert!(
+            (day0_models.get("claude-opus-4-8").unwrap_or(&0.0) - 130.0).abs() < 1e-9,
+            "opus total"
+        );
+        assert!(
+            (day0_models.get("claude-sonnet-4-6").unwrap_or(&0.0) - 50.0).abs() < 1e-9,
+            "sonnet total"
+        );
     }
 }

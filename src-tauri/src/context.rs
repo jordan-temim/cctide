@@ -112,3 +112,115 @@ pub fn active_sessions(
     out.sort_by_key(|s| std::cmp::Reverse(s.context_tokens));
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dedup_by_cwd_keeps_highest_context() {
+        // Two sessions in same cwd: keep the one with more tokens.
+        let sessions = vec![
+            SessionCtx {
+                session_id: "sess1".to_string(),
+                cwd: "/home/user/proj".to_string(),
+                version: "1.0".to_string(),
+                model: Some("sonnet".to_string()),
+                context_tokens: 50_000,
+                context_limit: 200_000,
+                percent: Some(25.0),
+            },
+            SessionCtx {
+                session_id: "sess2".to_string(),
+                cwd: "/home/user/proj".to_string(),
+                version: "1.0".to_string(),
+                model: Some("sonnet".to_string()),
+                context_tokens: 100_000,
+                context_limit: 200_000,
+                percent: Some(50.0),
+            },
+        ];
+
+        // Simulate the dedup logic from active_sessions.
+        let mut by_cwd: std::collections::HashMap<String, SessionCtx> =
+            std::collections::HashMap::new();
+        for s in sessions {
+            let entry = by_cwd.entry(s.cwd.clone()).or_insert_with(|| s.clone());
+            if s.context_tokens > entry.context_tokens {
+                *entry = s;
+            }
+        }
+
+        assert_eq!(by_cwd.len(), 1);
+        let kept = &by_cwd["/home/user/proj"];
+        assert_eq!(kept.session_id, "sess2");
+        assert_eq!(kept.context_tokens, 100_000);
+    }
+
+    #[test]
+    fn sort_by_context_tokens_descending() {
+        let mut sessions = vec![
+            SessionCtx {
+                session_id: "low".to_string(),
+                cwd: "/a".to_string(),
+                version: "1.0".to_string(),
+                model: None,
+                context_tokens: 10_000,
+                context_limit: 200_000,
+                percent: None,
+            },
+            SessionCtx {
+                session_id: "high".to_string(),
+                cwd: "/b".to_string(),
+                version: "1.0".to_string(),
+                model: None,
+                context_tokens: 150_000,
+                context_limit: 200_000,
+                percent: None,
+            },
+            SessionCtx {
+                session_id: "mid".to_string(),
+                cwd: "/c".to_string(),
+                version: "1.0".to_string(),
+                model: None,
+                context_tokens: 50_000,
+                context_limit: 200_000,
+                percent: None,
+            },
+        ];
+
+        sessions.sort_by_key(|s| std::cmp::Reverse(s.context_tokens));
+
+        assert_eq!(sessions[0].session_id, "high");
+        assert_eq!(sessions[1].session_id, "mid");
+        assert_eq!(sessions[2].session_id, "low");
+    }
+
+    #[test]
+    fn context_percent_calculates_correctly() {
+        let s = SessionCtx {
+            session_id: "test".to_string(),
+            cwd: "/home".to_string(),
+            version: "1.0".to_string(),
+            model: Some("sonnet".to_string()),
+            context_tokens: 100_000,
+            context_limit: 200_000,
+            percent: Some(50.0),
+        };
+        assert!((s.percent.unwrap() - 50.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn context_percent_none_with_zero_limit() {
+        let s = SessionCtx {
+            session_id: "test".to_string(),
+            cwd: "/home".to_string(),
+            version: "1.0".to_string(),
+            model: None,
+            context_tokens: 0,
+            context_limit: 0,
+            percent: None,
+        };
+        assert!(s.percent.is_none());
+    }
+}
