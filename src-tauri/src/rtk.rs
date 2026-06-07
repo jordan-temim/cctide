@@ -42,7 +42,7 @@ pub struct RtkWeek {
     pub commands: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RtkSavings {
     pub summary: RtkSummary,
     pub weekly: Vec<RtkWeek>,
@@ -55,7 +55,15 @@ struct GainOutput {
     weekly: Vec<RtkWeek>,
 }
 
-fn run_gain(extra: &[&str]) -> Option<GainOutput> {
+enum GainResult {
+    Ok(GainOutput),
+    /// Non-zero exit: rtk is present but the flag is unsupported (old version).
+    ExitError,
+    /// Deadline exceeded or spawn failure: don't retry, the binary is stuck.
+    Timeout,
+}
+
+fn run_gain(extra: &[&str]) -> GainResult {
     // Tauri apps do not inherit the login shell's PATH, so common locations
     // (/usr/local/bin on Intel Macs, /opt/homebrew/bin on Apple Silicon) are
     // missing. Prepend them so `rtk` is found regardless of install prefix.
@@ -65,14 +73,17 @@ fn run_gain(extra: &[&str]) -> Option<GainOutput> {
         path_env
     );
 
-    let mut child = Command::new("rtk")
+    let mut child = match Command::new("rtk")
         .args(["gain", "--format", "json"])
         .args(extra)
         .env("PATH", extended_path)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .ok()?;
+    {
+        Ok(c) => c,
+        Err(_) => return GainResult::Timeout,
+    };
 
     // Poll until done or timeout, then kill + reap to avoid zombie processes.
     let deadline = std::time::Instant::now() + RTK_TIMEOUT;
@@ -83,18 +94,20 @@ fn run_gain(extra: &[&str]) -> Option<GainOutput> {
                     return child
                         .wait_with_output()
                         .ok()
-                        .and_then(|o| serde_json::from_slice::<GainOutput>(&o.stdout).ok());
+                        .and_then(|o| serde_json::from_slice::<GainOutput>(&o.stdout).ok())
+                        .map(GainResult::Ok)
+                        .unwrap_or(GainResult::ExitError);
                 }
-                return None;
+                return GainResult::ExitError;
             }
             Ok(None) if std::time::Instant::now() < deadline => {
                 std::thread::sleep(Duration::from_millis(50));
             }
             _ => {
-                // Timeout or error: kill and reap the child before returning.
+                // Timeout or wait error: kill and reap before returning.
                 let _ = child.kill();
                 let _ = child.wait();
-                return None;
+                return GainResult::Timeout;
             }
         }
     }
@@ -103,19 +116,21 @@ fn run_gain(extra: &[&str]) -> Option<GainOutput> {
 /// Returns RTK stats, or None if `rtk` is absent / unreadable.
 pub fn savings() -> Option<RtkSavings> {
     // `--weekly` returns both `summary` and `weekly`.
-    let weekly_out = run_gain(&["--weekly"]);
-    match weekly_out {
-        Some(o) => Some(RtkSavings {
+    match run_gain(&["--weekly"]) {
+        GainResult::Ok(o) => Some(RtkSavings {
             summary: o.summary,
             weekly: o.weekly,
         }),
-        None => {
-            // Fallback: at least the global summary.
-            let o = run_gain(&[])?;
-            Some(RtkSavings {
+        // Non-zero exit means an old rtk version that doesn't support --weekly:
+        // fall back to the plain summary.
+        GainResult::ExitError => match run_gain(&[]) {
+            GainResult::Ok(o) => Some(RtkSavings {
                 summary: o.summary,
                 weekly: Vec::new(),
-            })
-        }
+            }),
+            _ => None,
+        },
+        // Timeout: binary is installed but unresponsive — don't retry.
+        GainResult::Timeout => None,
     }
 }

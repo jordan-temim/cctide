@@ -89,3 +89,84 @@ pub fn read_memory(cache: &ScanCache, cwds: &[String]) -> Vec<MemoryFile> {
 
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn memory_file_basic_structure() {
+        let mf = MemoryFile {
+            project: "test-project".to_string(),
+            name: "notes.md".to_string(),
+            path: "/home/user/.claude/projects/test-project/memory/notes.md".to_string(),
+            content: "# Notes\nContent here".to_string(),
+        };
+        assert_eq!(mf.project, "test-project");
+        assert_eq!(mf.name, "notes.md");
+        assert!(!mf.content.is_empty());
+    }
+
+    #[test]
+    fn memory_sort_puts_memory_md_first() {
+        let mut files = vec![
+            PathBuf::from("/memory/notes.md"),
+            PathBuf::from("/memory/MEMORY.md"),
+            PathBuf::from("/memory/archive.md"),
+        ];
+
+        files.sort_by_key(|p| {
+            let name = p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
+            (name != "MEMORY.md", name)
+        });
+
+        let sorted_names: Vec<String> = files
+            .iter()
+            .map(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_string()
+            })
+            .collect();
+
+        assert_eq!(sorted_names[0], "MEMORY.md");
+        assert_eq!(sorted_names[1], "archive.md");
+        assert_eq!(sorted_names[2], "notes.md");
+    }
+
+    #[test]
+    fn memory_sort_alphabetical_when_no_memory_md() {
+        let mut files = vec![
+            PathBuf::from("/memory/zebra.md"),
+            PathBuf::from("/memory/apple.md"),
+            PathBuf::from("/memory/banana.md"),
+        ];
+
+        files.sort_by_key(|p| {
+            let name = p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
+            (name != "MEMORY.md", name)
+        });
+
+        let sorted_names: Vec<String> = files
+            .iter()
+            .map(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_string()
+            })
+            .collect();
+
+        assert_eq!(sorted_names, vec!["apple.md", "banana.md", "zebra.md"]);
+    }
+}

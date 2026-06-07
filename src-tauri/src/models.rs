@@ -324,4 +324,75 @@ mod tests {
         );
         assert!((haiku.input - 1.0).abs() < 1e-9, "expected haiku pricing");
     }
+
+    // --- defaults and load ---
+
+    #[test]
+    fn model_entry_default_is_sonnet_class() {
+        let e = ModelEntry::default();
+        assert!((e.input - 3.0).abs() < 1e-9);
+        assert!((e.output - 15.0).abs() < 1e-9);
+        assert_eq!(e.context_window, 200_000);
+    }
+
+    #[test]
+    fn models_default_has_expected_keys() {
+        let m = Models::default();
+        assert!(m.models.contains_key("opus-4-8"));
+        assert!(m.models.contains_key("sonnet-4-6"));
+        assert!(m.models.contains_key("haiku"));
+        assert!(m.models.contains_key("haiku-3"));
+    }
+
+    #[test]
+    fn opus_is_more_expensive_than_sonnet() {
+        let m = Models::default();
+        let opus = m.entry_for("opus-4-8");
+        let sonnet = m.entry_for("sonnet-4-6");
+        assert!(opus.input > sonnet.input);
+        assert!(opus.output > sonnet.output);
+    }
+
+    #[test]
+    fn sonnet_is_more_expensive_than_haiku() {
+        let m = Models::default();
+        let sonnet = m.entry_for("sonnet-4-6");
+        let haiku = m.entry_for("haiku");
+        assert!(sonnet.input > haiku.input);
+        assert!(sonnet.output > haiku.output);
+    }
+
+    #[test]
+    fn cache_write_5m_is_cheaper_than_1h() {
+        let m = Models::default();
+        let e = m.entry_for("sonnet");
+        assert!(e.cache_write_5m < e.cache_write_1h);
+
+        let e = m.entry_for("opus");
+        assert!(e.cache_write_5m < e.cache_write_1h);
+    }
+
+    #[test]
+    fn context_limit_override_longest_match_wins() {
+        let mut overrides = HashMap::new();
+        overrides.insert("claude".to_string(), 100_000u64);
+        overrides.insert("claude-sonnet".to_string(), 300_000u64);
+        overrides.insert("claude-sonnet-4-6".to_string(), 500_000u64);
+
+        let m = Models::default();
+        let limit = m.context_limit_for("claude-sonnet-4-6", &overrides);
+        assert_eq!(limit, 500_000);
+    }
+
+    #[test]
+    fn all_models_have_200k_context_by_default() {
+        let m = Models::default();
+        for (_, entry) in &m.models {
+            assert_eq!(
+                entry.context_window, 200_000,
+                "all models should have 200k context"
+            );
+        }
+        assert_eq!(m.default.context_window, 200_000);
+    }
 }

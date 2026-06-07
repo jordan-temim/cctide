@@ -99,7 +99,7 @@ impl Default for Config {
             weekly_calibration_2: None,
             weekly_reset_date: None,
             context_limits: HashMap::new(),
-            refresh_secs: 30,
+            refresh_secs: 60,
             notifications_enabled: true,
             alert_levels: default_levels(),
             dynamic_icon: true,
@@ -122,8 +122,12 @@ pub fn config_path() -> Option<PathBuf> {
 fn parse_config(text: &str) -> Config {
     match serde_json::from_str::<Config>(text) {
         Ok(mut cfg) => {
+            // Clamp refresh interval to 1–3600 seconds (1 second to 1 hour).
+            // Prevents tight loops (too fast) and stale data (too slow).
             if cfg.refresh_secs == 0 {
-                cfg.refresh_secs = 30;
+                cfg.refresh_secs = 60;
+            } else {
+                cfg.refresh_secs = cfg.refresh_secs.clamp(1, 3600);
             }
             cfg
         }
@@ -226,8 +230,8 @@ mod tests {
     // --- parse_config / defaults ---
 
     #[test]
-    fn default_refresh_secs_is_30() {
-        assert_eq!(Config::default().refresh_secs, 30);
+    fn default_refresh_secs_is_60() {
+        assert_eq!(Config::default().refresh_secs, 60);
     }
 
     #[test]
@@ -253,19 +257,19 @@ mod tests {
     }
 
     #[test]
-    fn parse_config_zero_refresh_falls_back_to_30() {
+    fn parse_config_zero_refresh_falls_back_to_60() {
         let json = r#"{"refresh_secs": 0}"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
-        // parse_config normalises 0 → 30
+        // parse_config normalises 0 → 60
         let text = serde_json::to_string(&cfg).unwrap();
         let parsed = super::parse_config(&text);
-        assert_eq!(parsed.refresh_secs, 30);
+        assert_eq!(parsed.refresh_secs, 60);
     }
 
     #[test]
     fn parse_config_invalid_json_returns_default() {
         let cfg = super::parse_config("not valid json {{{");
-        assert_eq!(cfg.refresh_secs, 30);
+        assert_eq!(cfg.refresh_secs, 60);
         assert_eq!(cfg.alert_levels, vec![33.0, 66.0, 90.0]);
         assert!(cfg.notifications_enabled);
     }
@@ -286,5 +290,107 @@ mod tests {
         assert!((cal.percent - 42.0).abs() < 1e-9);
         assert!((cal.budget - 1234.5).abs() < 1e-9);
         assert_eq!(cal.calibrated_at, 1_000_000);
+    }
+
+    // --- save / atomicity ---
+
+    #[test]
+    fn save_creates_valid_json() {
+        // Verify that save() would produce valid JSON (without actually touching disk).
+        let cfg = Config {
+            refresh_secs: 120,
+            alert_levels: vec![25.0, 50.0, 75.0],
+            notifications_enabled: false,
+            ..Default::default()
+        };
+        let json = serde_json::to_string_pretty(&cfg).unwrap();
+        let reparsed: Config = serde_json::from_str(&json).unwrap();
+        assert_eq!(reparsed.refresh_secs, 120);
+        assert_eq!(reparsed.alert_levels, vec![25.0, 50.0, 75.0]);
+        assert!(!reparsed.notifications_enabled);
+    }
+
+    #[test]
+    fn save_handles_all_fields() {
+        let cfg = Config {
+            session_calibration: Some(Calibration {
+                percent: 50.0,
+                budget: 200.0,
+                calibrated_at: 1000,
+            }),
+            weekly_reset_date: Some("2026-06-01".to_string()),
+            context_limits: {
+                let mut m = std::collections::HashMap::new();
+                m.insert("sonnet".to_string(), 500_000);
+                m
+            },
+            refresh_secs: 45,
+            notifications_enabled: false,
+            dynamic_icon: false,
+            tracking_enabled: true,
+            ..Default::default()
+        };
+
+        let json = serde_json::to_string_pretty(&cfg).unwrap();
+        let reparsed: Config = serde_json::from_str(&json).unwrap();
+
+        assert!(reparsed.session_calibration.is_some());
+        assert_eq!(
+            reparsed.session_calibration.unwrap().percent,
+            50.0
+        );
+        assert_eq!(
+            reparsed.weekly_reset_date,
+            Some("2026-06-01".to_string())
+        );
+        assert_eq!(reparsed.context_limits.get("sonnet"), Some(&500_000));
+        assert_eq!(reparsed.refresh_secs, 45);
+        assert!(!reparsed.notifications_enabled);
+        assert!(!reparsed.dynamic_icon);
+        assert!(reparsed.tracking_enabled);
+    }
+
+    #[test]
+    fn parse_config_preserves_all_fields_in_roundtrip() {
+        let original = Config {
+            session_calibration: Some(Calibration {
+                percent: 33.0,
+                budget: 150.0,
+                calibrated_at: 2000,
+            }),
+            session_calibration_2: Some(Calibration {
+                percent: 25.0,
+                budget: 120.0,
+                calibrated_at: 1000,
+            }),
+            weekly_calibration: Some(Calibration {
+                percent: 60.0,
+                budget: 300.0,
+                calibrated_at: 3000,
+            }),
+            weekly_reset_date: Some("2026-06-15".to_string()),
+            refresh_secs: 30,
+            alert_levels: vec![20.0, 60.0, 85.0],
+            notifications_enabled: true,
+            dynamic_icon: true,
+            tracking_enabled: false,
+            ..Default::default()
+        };
+
+        let json = serde_json::to_string_pretty(&original).unwrap();
+        let parsed = super::parse_config(&json);
+
+        assert!(parsed.session_calibration.is_some());
+        assert!(parsed.session_calibration_2.is_some());
+        assert!(parsed.weekly_calibration.is_some());
+        assert_eq!(
+            parsed.weekly_reset_date,
+            Some("2026-06-15".to_string())
+        );
+        assert_eq!(parsed.refresh_secs, 30);
+        assert_eq!(parsed.alert_levels, vec![20.0, 60.0, 85.0]);
+        assert!(parsed.notifications_enabled);
+        assert!(parsed.dynamic_icon);
+        assert!(!parsed.tracking_enabled);
     }
 }
