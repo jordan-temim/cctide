@@ -67,6 +67,7 @@ pub fn spawn_update_check(app: &tauri::AppHandle) {
                         is_new
                     };
                     UPDATE_AVAILABLE.store(true, Ordering::SeqCst);
+                    let _ = app.emit_all("UPDATE_AVAILABLE", ());
                     if is_new {
                         let _ = app
                             .notification()

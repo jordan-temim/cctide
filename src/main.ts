@@ -83,4 +83,5 @@ window.addEventListener("DOMContentLoaded", async () => {
   setupTracking(cfg);
 
   void listen("refresh", () => refresh());
+  void listen("UPDATE_AVAILABLE", () => refresh());
 });
