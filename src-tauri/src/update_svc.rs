@@ -7,7 +7,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_updater::UpdaterExt;
 
@@ -67,7 +67,7 @@ pub fn spawn_update_check(app: &tauri::AppHandle) {
                         is_new
                     };
                     UPDATE_AVAILABLE.store(true, Ordering::SeqCst);
-                    let _ = app.emit_all("UPDATE_AVAILABLE", ());
+                    let _ = app.emit("UPDATE_AVAILABLE", ());
                     if is_new {
                         let _ = app
                             .notification()
