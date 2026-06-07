@@ -37,7 +37,11 @@ pub(crate) struct PanelData {
 
 #[tauri::command]
 pub fn get_panel_data(state: tauri::State<AppState>) -> PanelData {
-    let cfg = state.config_cache.lock().expect("config_cache poisoned").clone();
+    let cfg = state
+        .config_cache
+        .lock()
+        .expect("config_cache poisoned")
+        .clone();
 
     refresh_cache(&state);
     refresh_system(&state);
@@ -109,7 +113,11 @@ pub fn get_panel_data(state: tauri::State<AppState>) -> PanelData {
 // Memory is loaded lazily (on section open), not on every panel refresh.
 #[tauri::command]
 pub fn get_memory(state: tauri::State<AppState>) -> Vec<memory::MemoryFile> {
-    let cfg = state.config_cache.lock().expect("config_cache poisoned").clone();
+    let cfg = state
+        .config_cache
+        .lock()
+        .expect("config_cache poisoned")
+        .clone();
     refresh_cache(&state);
     refresh_system(&state);
     let cache = state.cache.lock().expect("cache poisoned");
@@ -125,7 +133,11 @@ pub fn get_memory(state: tauri::State<AppState>) -> Vec<memory::MemoryFile> {
 // don't need a full panel refresh.
 #[tauri::command]
 pub fn get_config(state: tauri::State<AppState>) -> config::Config {
-    state.config_cache.lock().expect("config_cache poisoned").clone()
+    state
+        .config_cache
+        .lock()
+        .expect("config_cache poisoned")
+        .clone()
 }
 
 // ---------------------------------------------------------------------------

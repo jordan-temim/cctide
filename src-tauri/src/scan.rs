@@ -502,7 +502,9 @@ mod tests {
         let encoded_cwd = encode_cwd(cwd);
 
         // Set up a file in the project folder for the cwd.
-        let project_path = PathBuf::from(format!("/root/.claude/projects/{encoded_cwd}/session1.jsonl"));
+        let project_path = PathBuf::from(format!(
+            "/root/.claude/projects/{encoded_cwd}/session1.jsonl"
+        ));
         cache.files.insert(
             project_path,
             CachedFile {

@@ -13,8 +13,7 @@ use tauri_plugin_updater::UpdaterExt;
 
 use crate::state::{AppState, UpdateInfo};
 
-pub const UPDATE_CHECK_INTERVAL: std::time::Duration =
-    std::time::Duration::from_secs(2 * 60 * 60);
+pub const UPDATE_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2 * 60 * 60);
 
 /// True while a check is in flight (prevents concurrent checks).
 pub static UPDATE_CHECKING: AtomicBool = AtomicBool::new(false);
@@ -47,9 +46,7 @@ pub fn spawn_update_check(app: &tauri::AppHandle) {
                         .chars()
                         .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'))
                     {
-                        format!(
-                            "https://github.com/jordan-temim/cctide/releases/tag/v{version}"
-                        )
+                        format!("https://github.com/jordan-temim/cctide/releases/tag/v{version}")
                     } else {
                         "https://github.com/jordan-temim/cctide/releases/latest".to_string()
                     };
@@ -65,8 +62,7 @@ pub fn spawn_update_check(app: &tauri::AppHandle) {
                             .available_update
                             .lock()
                             .expect("available_update poisoned");
-                        let is_new =
-                            slot.as_ref().map(|u| u.version != version).unwrap_or(true);
+                        let is_new = slot.as_ref().map(|u| u.version != version).unwrap_or(true);
                         *slot = Some(info);
                         is_new
                     };

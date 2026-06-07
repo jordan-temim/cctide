@@ -19,9 +19,17 @@ pub const SHIMMER_MS: u64 = 400;
 ///
 /// `last_disabled_sig` avoids redundant icon redraws when tracking is off;
 /// pass `&mut None` for one-shot calls that always want a fresh render.
-pub fn do_tick(app: &tauri::AppHandle, last_disabled_sig: &mut Option<(bool, bool)>, shimmer: bool) {
+pub fn do_tick(
+    app: &tauri::AppHandle,
+    last_disabled_sig: &mut Option<(bool, bool)>,
+    shimmer: bool,
+) {
     let state = app.state::<AppState>();
-    let cfg = state.config_cache.lock().expect("config_cache poisoned").clone();
+    let cfg = state
+        .config_cache
+        .lock()
+        .expect("config_cache poisoned")
+        .clone();
 
     if !cfg.tracking_enabled {
         let upd = UPDATE_AVAILABLE.load(Ordering::SeqCst);
@@ -54,8 +62,14 @@ pub fn do_tick(app: &tauri::AppHandle, last_disabled_sig: &mut Option<(bool, boo
     let session = usage::session_usage(&points, &cfg, now);
     let weekly = usage::weekly_usage(&points, &cfg, now);
     let fills = (
-        session.percent.map(|p| (p / 100.0).clamp(0.0, 1.0)).unwrap_or(0.0),
-        weekly.percent.map(|p| (p / 100.0).clamp(0.0, 1.0)).unwrap_or(0.0),
+        session
+            .percent
+            .map(|p| (p / 100.0).clamp(0.0, 1.0))
+            .unwrap_or(0.0),
+        weekly
+            .percent
+            .map(|p| (p / 100.0).clamp(0.0, 1.0))
+            .unwrap_or(0.0),
     );
     let tiers = (
         config::level_for(session.percent, &cfg.alert_levels),
@@ -88,11 +102,8 @@ pub fn do_tick(app: &tauri::AppHandle, last_disabled_sig: &mut Option<(bool, boo
                 update_available,
             });
             if let Some(tray) = app.tray_by_id("cctide-tray") {
-                let img = tauri::image::Image::new_owned(
-                    rendered.rgba,
-                    rendered.width,
-                    rendered.height,
-                );
+                let img =
+                    tauri::image::Image::new_owned(rendered.rgba, rendered.width, rendered.height);
                 let _ = tray.set_icon(Some(img));
                 #[cfg(target_os = "macos")]
                 let _ = tray.set_icon_as_template(true);

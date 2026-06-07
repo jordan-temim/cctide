@@ -335,14 +335,8 @@ mod tests {
         let reparsed: Config = serde_json::from_str(&json).unwrap();
 
         assert!(reparsed.session_calibration.is_some());
-        assert_eq!(
-            reparsed.session_calibration.unwrap().percent,
-            50.0
-        );
-        assert_eq!(
-            reparsed.weekly_reset_date,
-            Some("2026-06-01".to_string())
-        );
+        assert_eq!(reparsed.session_calibration.unwrap().percent, 50.0);
+        assert_eq!(reparsed.weekly_reset_date, Some("2026-06-01".to_string()));
         assert_eq!(reparsed.context_limits.get("sonnet"), Some(&500_000));
         assert_eq!(reparsed.refresh_secs, 45);
         assert!(!reparsed.notifications_enabled);
@@ -383,10 +377,7 @@ mod tests {
         assert!(parsed.session_calibration.is_some());
         assert!(parsed.session_calibration_2.is_some());
         assert!(parsed.weekly_calibration.is_some());
-        assert_eq!(
-            parsed.weekly_reset_date,
-            Some("2026-06-15".to_string())
-        );
+        assert_eq!(parsed.weekly_reset_date, Some("2026-06-15".to_string()));
         assert_eq!(parsed.refresh_secs, 30);
         assert_eq!(parsed.alert_levels, vec![20.0, 60.0, 85.0]);
         assert!(parsed.notifications_enabled);

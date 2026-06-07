@@ -129,9 +129,7 @@ fn sample(px: f64, py: f64, g: &Geom, cs: &[C; 2], p: &IconParams) -> [f64; 4] {
         let spine_x = g.cx_left - g.r * 0.19; // centred at cx_left (spine_x + hh/2 = cx_left)
         let hh = g.r * 0.38; // arc radius = half-height → same 0.76r total height as "U"
         let st = g.r * 0.09; // stroke half-thickness (matches "U" glyph)
-        let on_spine = (px - spine_x).abs() <= st
-            && py >= (g.cy - hh)
-            && py <= (g.cy + hh);
+        let on_spine = (px - spine_x).abs() <= st && py >= (g.cy - hh) && py <= (g.cy + hh);
         let ad = ((px - spine_x).powi(2) + (py - g.cy).powi(2)).sqrt();
         let on_arc = (ad - hh).abs() <= st && px >= spine_x;
         if on_spine || on_arc {
