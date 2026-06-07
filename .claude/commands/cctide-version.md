@@ -4,14 +4,15 @@ Bump the project version to the argument provided (e.g. `/version 0.3.0`).
 
 1. Run `cargo test --manifest-path src-tauri/Cargo.toml` — fail if tests don't pass
 2. Run `cargo fmt --check --manifest-path src-tauri/Cargo.toml` — fail if formatting issues
-3. Run `npx tsc --noEmit` — fail if TypeScript errors
+3. Run `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` — fail if clippy warnings
+4. Run `npx tsc --noEmit` — fail if TypeScript errors
 
 **Then bump the version:**
 
-4. Update `"version"` in `package.json`
-5. Update `version = "..."` in `src-tauri/Cargo.toml`
-6. Update `"version"` in `src-tauri/tauri.conf.json`
-7. Update the `cctide` package `version` in `src-tauri/Cargo.lock` (the
+5. Update `"version"` in `package.json`
+6. Update `version = "..."` in `src-tauri/Cargo.toml`
+7. Update `"version"` in `src-tauri/tauri.conf.json`
+8. Update the `cctide` package `version` in `src-tauri/Cargo.lock` (the
    `[[package]] name = "cctide"` entry) so the lockfile stays in sync — otherwise
    it drifts behind the manifest. Prefer running
    `cargo update -p cctide --manifest-path src-tauri/Cargo.toml` (regenerates
