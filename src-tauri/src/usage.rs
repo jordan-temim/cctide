@@ -729,9 +729,9 @@ mod tests {
         let from = 1_000i64;
         let now = 2_000i64;
         let points = vec![
-            pt(from, 10.0),     // boundary inclusive
+            pt(from, 10.0), // boundary inclusive
             pt(from + 500, 20.0),
-            pt(now, 30.0),      // boundary inclusive
+            pt(now, 30.0), // boundary inclusive
             pt(now + 1, 99.0),
         ];
         let w = weighted_since(&points, from, now);
@@ -740,10 +740,7 @@ mod tests {
 
     #[test]
     fn weighted_since_empty_window_returns_zero() {
-        let points = vec![
-            pt(100, 10.0),
-            pt(200, 20.0),
-        ];
+        let points = vec![pt(100, 10.0), pt(200, 20.0)];
         let w = weighted_since(&points, 300, 400);
         assert_eq!(w, 0.0);
     }
