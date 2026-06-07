@@ -28,144 +28,129 @@
         <button id="update-install" type="button" class="update-btn">Install</button>
       </div>
 
-      <!-- Gauge legend -->
-      <div class="gauge-legend">
-        <span class="legend-item"><span class="legend-swatch"></span>Normal</span>
-        <span class="legend-item"><span class="legend-swatch tier-1"></span>Alert 1</span>
-        <span class="legend-item"><span class="legend-swatch tier-2"></span>Alert 2</span>
-        <span class="legend-item"><span class="legend-swatch tier-3"></span>Alert 3</span>
+      <!-- Tab bar -->
+      <div class="tab-bar">
+        <button class="tab active" data-tab="usage">Usage</button>
+        <button class="tab" data-tab="settings">Settings</button>
+        <button class="tab" data-tab="analytics">Analytics</button>
+        <button class="tab" data-tab="extras">Extras</button>
       </div>
 
-      <!-- 1. Session (5h) -->
-      <section class="block">
-        <div class="block-head">
-          <span>Session (5h)</span><span id="dbg-session" class="dbg-pct"></span>
+      <!-- Tab: Usage -->
+      <div id="tab-usage" class="tab-panel">
+        <!-- Gauge legend -->
+        <div class="gauge-legend">
+          <span class="legend-item"><span class="legend-swatch"></span>Normal</span>
+          <span class="legend-item"><span class="legend-swatch tier-1"></span>Alert 1</span>
+          <span class="legend-item"><span class="legend-swatch tier-2"></span>Alert 2</span>
+          <span class="legend-item"><span class="legend-swatch tier-3"></span>Alert 3</span>
         </div>
-        <div id="session-bar" class="bar bar-segmented"></div>
-        <div id="session-sub" class="sub"></div>
-      </section>
 
-      <!-- 2. Weekly -->
-      <section class="block">
-        <div class="block-head">
-          <span>Weekly limit</span><span id="dbg-weekly" class="dbg-pct"></span>
-        </div>
-        <div id="weekly-bar" class="bar bar-segmented"></div>
-        <div id="weekly-sub" class="sub"></div>
-      </section>
-
-      <!-- 3. Calibration -->
-      <section class="block">
-        <button id="calib-toggle" class="collapse-head">
-          <span>Calibrate</span>
-          <div class="notif-head-right">
-            <span id="calib-status" class="calib-status"></span>
-            <span class="chev">▸</span>
+        <!-- Session (5h) -->
+        <section class="block">
+          <div class="block-head">
+            <span>Session (5h)</span><span id="dbg-session" class="dbg-pct"></span>
           </div>
-        </button>
-        <form id="calib-form" class="collapse-body hidden calib">
-          <p id="calib-hint" class="calib-hint">
-            Two calibrations per bar are needed. Run <b>/usage</b> in Claude Code and enter the percentages — cctide will notify you when it's time for the second one.
-          </p>
+          <div id="session-bar" class="bar bar-segmented"></div>
+          <div id="session-sub" class="sub"></div>
+        </section>
 
-          <div class="calib-grid">
-            <div class="calib-col">
-              <span id="calib-label-session" class="calib-title">First — Session (5h)</span>
-              <input type="number" id="calib-session" min="0" max="100" step="1" placeholder="e.g. 57" />
-            </div>
-            <div class="calib-col">
-              <span id="calib-label-weekly" class="calib-title">First — Weekly limit</span>
-              <input type="number" id="calib-weekly" min="0" max="100" step="1" placeholder="e.g. 42" />
-            </div>
-            <div class="calib-col calib-col-full">
-              <span class="calib-title">Weekly reset date &amp; time</span>
-              <input type="datetime-local" id="calib-reset" />
-            </div>
+        <!-- Weekly -->
+        <section class="block">
+          <div class="block-head">
+            <span>Weekly limit</span><span id="dbg-weekly" class="dbg-pct"></span>
           </div>
+          <div id="weekly-bar" class="bar bar-segmented"></div>
+          <div id="weekly-sub" class="sub"></div>
+        </section>
 
-          <button type="submit" class="primary">Save calibration</button>
-          <span id="calib-msg" class="sub"></span>
-        </form>
-      </section>
+        <!-- Open sessions -->
+        <section class="block">
+          <button id="sessions-toggle" class="collapse-head">
+            <span>Open sessions</span><span class="chev">▸</span>
+          </button>
+          <div id="sessions-body" class="collapse-body hidden">
+            <div id="sessions-list" class="sessions"></div>
+            <p class="sessions-note">Some models support context windows beyond 200k, but Claude Code targets 200k in practice, keeping sessions coherent and consumption predictable.</p>
+          </div>
+        </section>
+      </div>
 
-      <!-- 4. Notifications (thresholds) -->
-      <section class="block">
-        <button id="notif-toggle" class="collapse-head">
-          <span>System notifications</span>
-          <div class="notif-head-right">
+      <!-- Tab: Settings -->
+      <div id="tab-settings" class="tab-panel hidden">
+        <section class="block">
+          <div class="settings-sub-head">Calibrate <span id="calib-status" class="calib-status"></span></div>
+          <form id="calib-form" class="calib">
+            <p id="calib-hint" class="calib-hint">
+              Two calibrations per bar are needed. Run <b>/usage</b> in Claude Code and enter the percentages — cctide will notify you when it's time for the second one.
+            </p>
+            <div class="calib-grid">
+              <div class="calib-col">
+                <span id="calib-label-session" class="calib-title">First - Session (5h)</span>
+                <input type="number" id="calib-session" min="0" max="100" step="1" placeholder="e.g. 57" />
+              </div>
+              <div class="calib-col">
+                <span id="calib-label-weekly" class="calib-title">First - Weekly limit</span>
+                <input type="number" id="calib-weekly" min="0" max="100" step="1" placeholder="e.g. 42" />
+              </div>
+              <div class="calib-col calib-col-full">
+                <span class="calib-title">Weekly reset date &amp; time</span>
+                <input type="datetime-local" id="calib-reset" />
+              </div>
+            </div>
+            <button type="submit" class="primary">Save calibration</button>
+            <span id="calib-msg" class="sub"></span>
+          </form>
+
+          <hr class="sep" style="margin: 10px 0;" />
+
+          <div class="settings-sub-head">
+            <span id="notif-section-label">System notifications</span>
             <label class="track-toggle" title="Enable / disable system notifications">
               <input type="checkbox" id="notif-enabled" />
               <span class="track-slider"></span>
             </label>
-            <span class="chev">▸</span>
           </div>
-        </button>
-        <div id="notif-body" class="collapse-body hidden notif">
-          <p class="calib-hint">These three levels drive the tray icon, the bar colours, and the system notification (if enabled) each time session or weekly crosses a level.</p>
-          <div class="calib-group">
-            <span class="calib-title">Alert levels (%)</span>
-            <div class="levels-row">
-              <input type="number" id="notif-level-1" min="0" max="100" step="1" />
-              <input type="number" id="notif-level-2" min="0" max="100" step="1" />
-              <input type="number" id="notif-level-3" min="0" max="100" step="1" />
+          <div id="notif-body" class="notif">
+            <p class="calib-hint">These three levels drive the tray icon, the bar colours, and the system notification (if enabled) each time session or weekly crosses a level.</p>
+            <div class="calib-group">
+              <span class="calib-title">Alert levels (%)</span>
+              <div class="levels-row">
+                <input type="number" id="notif-level-1" min="0" max="100" step="1" />
+                <input type="number" id="notif-level-2" min="0" max="100" step="1" />
+                <input type="number" id="notif-level-3" min="0" max="100" step="1" />
+              </div>
             </div>
+            <button type="button" id="notif-save" class="primary">Save notifications</button>
+            <span id="notif-msg" class="sub"></span>
           </div>
-          <button type="button" id="notif-save" class="primary">Save notifications</button>
-          <span id="notif-msg" class="sub"></span>
-        </div>
-      </section>
+        </section>
+      </div>
 
-      <hr class="sep" />
-
-      <!-- 5. Activity chart (7-day) -->
-      <section class="block">
-        <button id="chart-toggle" class="collapse-head">
-          <span>7-day activity</span><span class="chev open">▸</span>
-        </button>
-        <div id="chart-body" class="collapse-body">
+      <!-- Tab: Analytics -->
+      <div id="tab-analytics" class="tab-panel hidden">
+        <!-- Weekly window chart -->
+        <section class="block">
+          <div class="block-head">Weekly window</div>
           <div id="chart-container" class="chart-container"></div>
-        </div>
-      </section>
+        </section>
 
-      <!-- 6. Open sessions -->
-      <section class="block">
-        <button id="sessions-toggle" class="collapse-head">
-          <span>Open sessions</span><span class="chev">▸</span>
-        </button>
-        <div id="sessions-body" class="collapse-body hidden">
-          <div id="sessions-list" class="sessions"></div>
-        </div>
-      </section>
+        <!-- Memory -->
+        <section class="block">
+          <button id="memory-toggle" class="collapse-head">
+            <span>Memory</span><span class="chev">▸</span>
+          </button>
+          <div id="memory-body" class="collapse-body hidden"></div>
+        </section>
+      </div>
 
-      <!-- 6. Models used -->
-      <section class="block">
-        <button id="models-toggle" class="collapse-head">
-          <span>Weekly models</span><span class="chev">▸</span>
-        </button>
-        <div id="models-body" class="collapse-body hidden">
-          <div id="models-list" class="models"></div>
-        </div>
-      </section>
-
-      <!-- 7. Memory -->
-      <section class="block">
-        <button id="memory-toggle" class="collapse-head">
-          <span>Memory</span><span class="chev">▸</span>
-        </button>
-        <div id="memory-body" class="collapse-body hidden"></div>
-      </section>
-
-      <hr class="sep" />
-
-      <!-- 8. RTK (greyed out when not installed) -->
-      <section id="rtk-block" class="block">
-        <button id="rtk-toggle" class="collapse-head">
-          <span>RTK</span><span class="chev">▸</span>
-        </button>
-        <div id="rtk-body" class="collapse-body hidden">
+      <!-- Tab: Extras -->
+      <div id="tab-extras" class="tab-panel hidden">
+        <section id="rtk-block" class="block">
+          <div class="block-head"><span>RTK</span><span id="rtk-savings" class="val good"></span></div>
           <div id="rtk-content"></div>
-        </div>
-      </section>
+        </section>
+      </div>
 
       <footer class="foot">
         <span class="foot-text">All figures are computed locally from your <code>~/.claude</code> files: <b>nothing is ever sent anywhere.</b> Percentages are estimates, so expect a small margin versus Claude Code's <b>/usage</b>.</span>

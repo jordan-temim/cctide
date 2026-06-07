@@ -14,6 +14,10 @@
   --tier-1: #2e9e6b;  /* green  */
   --tier-2: #d4a017;  /* amber  */
   --tier-3: #d0392b;  /* red    */
+
+  --space: 10px;      /* base rhythm: gap between sections, block padding */
+  --space-sm: 6px;    /* secondary rhythm: inner component spacing */
+  --legend-gap: var(--space-sm); /* uniform spacing around all legends */
 }
 
 * {
@@ -37,7 +41,7 @@ body {
 .panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space);
   padding: 12px;
 }
 
@@ -119,7 +123,7 @@ body {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 10px;
+  padding: var(--space);
 }
 
 .block-head {
@@ -127,14 +131,14 @@ body {
   justify-content: space-between;
   align-items: baseline;
   font-weight: 500;
-  margin-bottom: 6px;
+  margin-bottom: var(--space-sm);
 }
 .dbg-pct {
   font-size: 10px;
   font-weight: 400;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
-  margin-left: 6px;
+  margin-left: var(--space-sm);
 }
 
 .val {
@@ -226,12 +230,48 @@ body {
   margin-top: 5px;
 }
 
+/* Tab bar (pill style) */
+.tab-bar {
+  display: flex;
+  gap: 3px;
+  background: var(--track);
+  border-radius: 8px;
+  padding: 3px;
+}
+.tab {
+  flex: 1;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.tab:hover:not(.active) {
+  color: var(--text);
+}
+.tab.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Tab panels */
+.tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space);
+}
+
 .gauge-legend {
   display: flex;
-  gap: 10px;
+  gap: var(--space);
   align-items: center;
   justify-content: flex-end;
-  padding: 0 0 6px;
+  padding: var(--legend-gap) 0;
 }
 .legend-item {
   display: flex;
@@ -258,10 +298,19 @@ body {
 }
 
 /* Sessions */
+.sessions-note {
+  margin-top: 8px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-sm);
+}
+
 .sessions {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space);
 }
 .session-top {
   display: flex;
@@ -279,6 +328,17 @@ body {
   color: var(--muted);
   border-radius: 4px;
   padding: 1px 6px;
+}
+
+/* Settings sub-sections (Calibrate / Notifications inside the Settings block) */
+.settings-sub-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 8px;
 }
 
 /* Models used */
@@ -331,8 +391,8 @@ body {
 /* Memory */
 .mem-file {
   border-top: 1px solid var(--line);
-  padding-top: 6px;
-  margin-top: 6px;
+  padding-top: var(--space-sm);
+  margin-top: var(--space-sm);
 }
 .mem-file:first-child {
   border-top: none;
@@ -344,7 +404,7 @@ body {
   justify-content: space-between;
   background: none;
   border: none;
-  color: var(--text);
+  color: var(--muted);
   cursor: pointer;
   font-size: 12px;
 }
@@ -352,7 +412,7 @@ body {
   color: var(--muted);
 }
 .mem-content {
-  margin-top: 6px;
+  margin-top: var(--space-sm);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 11px;
   white-space: pre-wrap;
@@ -367,7 +427,7 @@ body {
 .notif {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space);
 }
 .check-row {
   display: flex;
@@ -388,7 +448,7 @@ body {
 .levels-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
+  gap: var(--space-sm);
 }
 .levels-row input {
   width: 100%;
@@ -428,7 +488,7 @@ body {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 8px var(--space);
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -443,8 +503,8 @@ body {
 }
 .calib-title {
   font-size: 11px;
-  font-weight: 600;
-  color: var(--accent);
+  font-weight: 500;
+  color: var(--muted);
 }
 .calib input {
   background: var(--field);
@@ -474,8 +534,8 @@ button.primary:hover {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
-  padding: 7px 10px;
+  margin-bottom: var(--space);
+  padding: 7px var(--space);
   border: 1px solid var(--accent);
   border-radius: 8px;
   background: var(--panel); /* fallback for webviews without color-mix */
@@ -501,7 +561,7 @@ button.primary:hover {
   color: #fff;
   border: none;
   border-radius: 6px;
-  padding: 5px 10px;
+  padding: 5px var(--space);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -523,6 +583,25 @@ button.primary:hover {
 .chart-container svg {
   display: block;
   overflow: visible;
+}
+.chart-legend {
+  display: flex;
+  gap: var(--space);
+  flex-wrap: wrap;
+  margin: calc(var(--legend-gap) + var(--space)) 0 var(--legend-gap);
+}
+.chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.chart-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 /* Footer note */
