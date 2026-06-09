@@ -204,7 +204,6 @@ pub fn set_calibration(
             return Err("session percent must be greater than 0".into());
         }
         let s = usage::session_usage(&points, &cfg, now);
-        cfg.session_calibration_2 = cfg.session_calibration.take();
         cfg.session_calibration = Some(config::Calibration {
             percent: pct,
             budget: usage::budget_from_percent(s.weighted_tokens, pct),
@@ -221,7 +220,6 @@ pub fn set_calibration(
             return Err("weekly percent must be greater than 0".into());
         }
         let w = usage::weekly_usage(&points, &cfg, now);
-        cfg.weekly_calibration_2 = cfg.weekly_calibration.take();
         cfg.weekly_calibration = Some(config::Calibration {
             percent: pct,
             budget: usage::budget_from_percent(w.weighted_tokens, pct),
