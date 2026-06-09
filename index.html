@@ -82,15 +82,15 @@
           <div class="settings-sub-head">Calibrate <span id="calib-status" class="calib-status"></span></div>
           <form id="calib-form" class="calib">
             <p id="calib-hint" class="calib-hint">
-              Two calibrations per bar are needed. Run <b>/usage</b> in Claude Code and enter the percentages — cctide will notify you when it's time for the second one.
+              Run <b>/usage</b> in Claude Code once and enter the percentages — a single calibration is enough.
             </p>
             <div class="calib-grid">
               <div class="calib-col">
-                <span id="calib-label-session" class="calib-title">First - Session (5h)</span>
+                <span id="calib-label-session" class="calib-title">Session (5h)</span>
                 <input type="number" id="calib-session" min="0" max="100" step="1" placeholder="e.g. 57" />
               </div>
               <div class="calib-col">
-                <span id="calib-label-weekly" class="calib-title">First - Weekly limit</span>
+                <span id="calib-label-weekly" class="calib-title">Weekly limit</span>
                 <input type="number" id="calib-weekly" min="0" max="100" step="1" placeholder="e.g. 42" />
               </div>
               <div class="calib-col calib-col-full">
