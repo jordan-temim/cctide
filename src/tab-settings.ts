@@ -1,25 +1,21 @@
 import { invoke } from "@tauri-apps/api/core";
-import { $, pct, clampInput } from "./utils";
+import { $, pct, clampInput, nextWeeklyReset } from "./utils";
 import type { Config } from "./types";
 
 function updateCalibStatus(cfg: Config) {
   const el = $<HTMLSpanElement>("calib-status");
-  const done =
-    cfg.session_calibration != null && cfg.session_calibration_2 != null &&
-    cfg.weekly_calibration != null && cfg.weekly_calibration_2 != null;
+  const done = cfg.session_calibration != null && cfg.weekly_calibration != null;
   el.textContent = done ? "✓" : "●";
   el.className = "calib-status " + (done ? "done" : "pending");
 
-  $("calib-label-session").textContent =
-    cfg.session_calibration != null ? "2nd - Session (5h)" : "First - Session (5h)";
-  $("calib-label-weekly").textContent =
-    cfg.weekly_calibration != null ? "2nd - Weekly limit" : "First - Weekly limit";
+  $("calib-label-session").textContent = "Session (5h)";
+  $("calib-label-weekly").textContent = "Weekly limit";
   const hint = $("calib-hint");
   if (done) hint.classList.add("hidden"); else hint.classList.remove("hidden");
 }
 
 export function setupCalibration(cfg: Config, onSave: () => Promise<void>) {
-  if (cfg.weekly_reset_date) $<HTMLInputElement>("calib-reset").value = cfg.weekly_reset_date;
+  if (cfg.weekly_reset_date) $<HTMLInputElement>("calib-reset").value = nextWeeklyReset(cfg.weekly_reset_date);
   updateCalibStatus(cfg);
   clampInput("calib-session");
   clampInput("calib-weekly");
@@ -34,9 +30,7 @@ export function setupCalibration(cfg: Config, onSave: () => Promise<void>) {
         resetDate: $<HTMLInputElement>("calib-reset").value || null,
       });
       const updated = await invoke<Config>("get_config");
-      const allDone =
-        updated.session_calibration_2 != null && updated.weekly_calibration_2 != null;
-      msg.textContent = allDone ? "Calibrated ✓" : "Saved — calibrate once more when notified.";
+      msg.textContent = "Calibrated ✓";
       updateCalibStatus(updated);
       await onSave();
     } catch (err) {

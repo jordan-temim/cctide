@@ -41,7 +41,7 @@ The panel is organized into **four tabs**:
 | **Analytics** | Weekly window, Memory | Per-model token breakdown for the current week; active sessions' project memory files |
 | **Extras** | RTK | Tokens saved (shown only if `rtk` is installed) |
 
-The session and weekly bars are **15-segment fuel gauges**. The tray icon is live: two C-shapes fill with session (left) and weekly (right) usage. On macOS they blink at an escalating rate as levels are crossed. On Windows each C is tinted green → orange → red.
+The session and weekly bars are **15-segment fuel gauges**. The tray icon is live: two C-shapes fill with session (left) and weekly (right) usage. On macOS they blink at an escalating rate as levels are crossed. On Windows each C is tinted green → orange → red. When an update is available a **"U"** appears in the right C (see [Updates](#updates)); development builds draw a **"D"** in the left C.
 
 Every 60 seconds (configurable via `refresh_secs`), cctide re-reads the local JSONL files and a small notch briefly sweeps both C arcs — a visual confirmation that the data just refreshed. The same sweep also plays when you save a calibration, toggle tracking, or update alert levels. The notch is a transparent gap on macOS and a grey dip on Windows; it completes in about 2 seconds and has no effect on the displayed values.
 
@@ -156,20 +156,14 @@ Remove-Item -Recurse -Force "$env:APPDATA\com.cctide"
 
 <p align="center"><img src="docs/calibration.png" width="287" /></p>
 
-cctide reconstructs your quota locally from token weights. Two calibration points per bar are required for best accuracy — they let cctide fit a line through your actual usage rather than assuming a fixed origin.
+cctide reconstructs your quota locally from token weights. A single calibration point is all it needs.
 
-**Step 1 — first calibration:**
 1. In Claude Code, run `/usage` and note your **session %**, **weekly %**, and **weekly reset date**.
-2. In cctide, open **Calibrate** (● means pending), enter those values, and click **Save**. The label reads "First calibration" and cctide starts tracking.
+2. In cctide, open **Calibrate** (● means pending), enter those values, and click **Save**. The indicator turns ✓ and cctide starts tracking.
 
-> **Reset date tip:** enter the date exactly as shown by `/usage` — past or future, any format accepted (`YYYY-MM-DD` or `YYYY-MM-DDTHH:MM`). If the date is in the future (e.g. your next upcoming reset), cctide automatically computes the current window by stepping back in 7-day increments.
+> **Reset date tip:** enter the date exactly as shown by `/usage` — past or future, any format accepted (`YYYY-MM-DD` or `YYYY-MM-DDTHH:MM`). cctide treats it as a recurring weekly anchor: once saved, the field shows your **next upcoming reset** (it rolls forward 7 days at a time), so you never see a stale past date.
 
-**Step 2 — second calibration (triggered by cctide):**
-
-3. When enough usage has accumulated (≈ 25 percentage-points later), cctide sends a system notification: *"Calibrate one final time for better accuracy."*
-4. Run `/usage` again in Claude Code, enter the new percentages in cctide, and click **Save**. The indicator turns ✓ and the two-point linear fit activates.
-
-After that, no further action is needed. If you change plans, start over from step 1.
+After that, no further action is needed. If you change plans, recalibrate once.
 
 ### Plan-agnostic design
 
@@ -181,19 +175,17 @@ The budget is derived from the % you report:
 budget = tokens_so_far / (your_% / 100)
 ```
 
-This automatically captures your plan's actual quota size — Pro users get a smaller budget, Max users a larger one, from the exact same calibration steps. Per-model pricing ratios and the window mechanics (rolling 5h session, weekly reset) are identical across plans. If you switch plans, start the two-step calibration over.
+This automatically captures your plan's actual quota size — Pro users get a smaller budget, Max users a larger one, from the exact same calibration step. Per-model quota weights and the window mechanics (rolling 5h session, weekly reset) are identical across plans. If you switch plans, recalibrate once.
 
 ### How consumption is weighted
 
-Tokens are weighted by Anthropic's published per-model pricing (input / output / cache-write rates), captured **2026-06-03**. **Cache reads are excluded** — Anthropic's own rate-limit metering doesn't count them, and including them caused usage to balloon with conversation length.
+Tokens are weighted using **empirical quota weights** rather than API prices, then turned into a percentage by calibration. The weights live in `models.json` at the app root (compiled into the binary; nothing is written to `~/.claude`). Only the ratios matter — calibration absorbs the absolute scale — so you can edit them and rebuild if the quota mechanics seem to have changed.
 
-The weights live in `models.json` at the app root (compiled into the binary; nothing is written to `~/.claude`). Edit it and rebuild if pricing changes. Only the ratios matter — calibration absorbs the absolute scale.
-
-> **Why two points?** A single-point calibration assumes the relationship between local tokens and Anthropic's metering passes through zero. In practice there is a small constant offset. The two-point fit (`percent = a·tokens + b`) corrects for both scale error and offset, keeping the displayed % within ~1–2% of `/usage` after calibration.
+These weights come from a **regression experiment**, and it's still evolving: across many sessions, each data point pairs the `/usage` % with the local token counts of that 5-hour window, and a **non-negative least-squares** (NNLS) fit looks for the weights that best reproduce the %, scored by **leave-one-window-out cross-validation** (LOWO-RMSE — hold out a whole session and predict it). The exact quota formula isn't public, so these remain **best-effort estimates** that may be refined as more data comes in.
 
 ### Context window
 
-The "Open sessions" panel shows each active Claude Code process and how full its context window is. Claude Code uses an effective **200k-token context** for all current models, regardless of a model's theoretical maximum. cctide uses that same 200k as its denominator, so the percentage aligns with what `/context` shows in Claude Code.
+The "Open sessions" panel shows each active Claude Code process and how full its context window is. Some models can technically accept more than 200k tokens, but past roughly that point answer quality tends to degrade and each turn becomes far more token-hungry — so Claude Code works against an effective **~200k-token context** (compacting around there). cctide measures against that same 200k, so the percentage aligns with what `/context` shows in Claude Code.
 
 ---
 
@@ -251,8 +243,8 @@ cctide is built with **[Tauri v2](https://tauri.app)**: a Rust backend embedded 
 **Model data (`models.json`):**
 
 - Compiled into the binary at build time via `include_str!`
-- Contains per-model: input/output/cache-write pricing weights, context window
-- Edit and rebuild to update pricing or add new models
+- Two weight sets per model: **$/MTok prices** (reference only) and **empirical quota weights** (the `quota` block — what actually drives the %), plus context window
+- Edit and rebuild to update the quota mechanics, prices, or add new models
 
 ### Running tests
 
@@ -262,9 +254,12 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 # TypeScript typecheck
 npx tsc --noEmit
+
+# Frontend unit tests (Vitest)
+npm test
 ```
 
-The Rust test suite covers the core business logic: session/weekly window calculation, calibration math, model entry lookup (longest-match), quota weighting, JSONL dedup filtering, and config sanitisation.
+The Rust test suite covers the core business logic: session/weekly window calculation, calibration math, model entry lookup (longest-match), quota weighting, JSONL dedup filtering, and config sanitisation. The frontend suite (Vitest) covers pure helpers such as the weekly-reset rollover (`nextWeeklyReset`).
 
 ### Running locally
 
@@ -323,7 +318,7 @@ src-tauri/src/
   config.rs           Persisted config (calibration, settings)
   memory.rs           Memory file reader
   rtk.rs              RTK integration (optional)
-models.json           Per-model pricing + context window (edit to update)
+models.json           Per-model quota weights + prices + context window (edit to update)
 ```
 
 ---

@@ -97,3 +97,17 @@ export function clampInput(id: string) {
     if (Number.isFinite(n) && n < 0) el.value = "0";
   });
 }
+
+// The stored weekly reset is the *anchor* (often in the past). Returns the next
+// upcoming reset as a `datetime-local` value (`YYYY-MM-DDTHH:MM`), mirroring the
+// backend's rolling logic (step by 7 days until strictly in the future). Invalid
+// input is returned unchanged. Re-running it on its own output is idempotent.
+export function nextWeeklyReset(resetStr: string): string {
+  const d = new Date(resetStr.length <= 10 ? `${resetStr}T00:00` : resetStr);
+  if (isNaN(d.getTime())) return resetStr;
+  const now = Date.now();
+  while (d.getTime() > now) d.setDate(d.getDate() - 7);
+  while (d.getTime() <= now) d.setDate(d.getDate() + 7);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}

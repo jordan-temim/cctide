@@ -35,31 +35,11 @@ pub struct WeeklyUsage {
     pub calibrated: bool,
 }
 
-/// Minimum token distance between two calibration points for the linear fit to
-/// be numerically stable (avoids near-zero denominator in slope computation).
-const MIN_TOKEN_DIFF: f64 = 1.0;
-
-fn percent_from(
-    weighted: f64,
-    cal_1: &Option<Calibration>,
-    cal_2: &Option<Calibration>,
-) -> (Option<f64>, bool) {
-    // Two-point linear fit: percent = a·tokens + b
-    if let (Some(c1), Some(c2)) = (cal_1, cal_2) {
-        if c1.budget > 0.0 && c2.budget > 0.0 {
-            // Recover token counts from budget = tokens / (percent/100)
-            let k_new = c1.budget * (c1.percent / 100.0); // newer calibration
-            let k_old = c2.budget * (c2.percent / 100.0); // older calibration
-            let dk = k_new - k_old;
-            if dk.abs() >= MIN_TOKEN_DIFF {
-                let a = (c1.percent - c2.percent) / dk;
-                let b = c2.percent - a * k_old;
-                return (Some((a * weighted + b).clamp(0.0, 200.0)), true);
-            }
-        }
-    }
-    // Single-point fallback: linear through origin
-    match cal_1 {
+/// Single-point calibration: linear through the origin. With the empirical quota
+/// weights (`models.rs`), the relationship passes through 0, so one point
+/// (`budget = K / (percent/100)`) is enough — no second point / intercept needed.
+fn percent_from(weighted: f64, cal: &Option<Calibration>) -> (Option<f64>, bool) {
+    match cal {
         Some(c) if c.budget > 0.0 => (Some(weighted / c.budget * 100.0), true),
         _ => (None, false),
     }
@@ -102,11 +82,7 @@ pub fn session_usage(points: &[Point], cfg: &Config, now: i64) -> SessionUsage {
         None => 0.0,
     };
 
-    let (percent, calibrated) = percent_from(
-        weighted,
-        &cfg.session_calibration,
-        &cfg.session_calibration_2,
-    );
+    let (percent, calibrated) = percent_from(weighted, &cfg.session_calibration);
     SessionUsage {
         window_start,
         reset_at,
@@ -170,8 +146,7 @@ pub fn weekly_usage(points: &[Point], cfg: &Config, now: i64) -> WeeklyUsage {
         Some(start) => weighted_since(points, start, now),
         None => 0.0,
     };
-    let (percent, calibrated) =
-        percent_from(weighted, &cfg.weekly_calibration, &cfg.weekly_calibration_2);
+    let (percent, calibrated) = percent_from(weighted, &cfg.weekly_calibration);
 
     WeeklyUsage {
         weighted_tokens: weighted,
@@ -362,68 +337,43 @@ mod tests {
         assert_eq!(w, 30.0); // only ts=1000 and ts=1500
     }
 
-    // --- percent_from (two-point fit) ---
-
-    fn cal_point(percent: f64, tokens: f64) -> Option<Calibration> {
-        Some(Calibration {
-            percent,
-            budget: budget_from_percent(tokens, percent),
-            calibrated_at: 0,
-        })
-    }
+    // --- percent_from (single-point) ---
 
     #[test]
-    fn two_point_fit_corrects_intercept() {
-        // True relationship: percent = 0.5 * tokens + 5 (intercept of 5)
-        // cal_2 (older): tokens=10, percent=10  →  a=0.5, b=5
-        // cal_1 (newer): tokens=30, percent=20
-        let cal_1 = cal_point(20.0, 30.0);
-        let cal_2 = cal_point(10.0, 10.0);
-        // At tokens=50: expected 0.5*50+5 = 30
-        let (pct, done) = percent_from(50.0, &cal_1, &cal_2);
+    fn percent_from_single_point_through_origin() {
+        let c = cal(200.0); // budget 200
+        let (pct, done) = percent_from(50.0, &c);
         assert!(done);
-        let pct = pct.unwrap();
-        assert!((pct - 30.0).abs() < 1e-6, "expected 30, got {pct}");
+        assert!((pct.unwrap() - 25.0).abs() < 1e-6); // 50/200*100
     }
 
     #[test]
-    fn two_point_same_as_single_when_cal2_missing() {
-        let cal_1 = cal_point(50.0, 100.0); // budget = 200
-        let (pct, done) = percent_from(50.0, &cal_1, &None);
-        assert!(done);
-        assert!((pct.unwrap() - 25.0).abs() < 1e-6); // 50/200*100 = 25
-    }
-
-    #[test]
-    fn two_point_fallback_when_dk_too_small() {
-        // Both points at nearly identical token counts → fallback to single-point
-        let cal_1 = cal_point(20.0, 100.0);
-        let cal_2 = cal_point(20.1, 100.5); // dk = 0.5 < MIN_TOKEN_DIFF=1.0
-        let (pct, done) = percent_from(100.0, &cal_1, &cal_2);
-        assert!(done);
-        // Should use single-point: 100 / (100/0.2) * 100 = 20
-        let budget = budget_from_percent(100.0, 20.0);
-        let expected = 100.0 / budget * 100.0;
-        assert!((pct.unwrap() - expected).abs() < 1e-6);
-    }
-
-    #[test]
-    fn two_point_result_clamped_at_zero() {
-        // fit produces negative at low tokens
-        let cal_1 = cal_point(50.0, 100.0);
-        let cal_2 = cal_point(10.0, 10.0);
-        // a = (50-10)/(100-10) = 40/90, b = 10 - (40/90)*10 ≈ 5.56
-        // At tokens=0: b ≈ 5.56 (positive, already fine — try tokens=-1 via 0 clamp)
-        // Use tokens far below k1 to get negative result from extrapolation
-        let (pct, _) = percent_from(0.0, &cal_1, &cal_2);
-        assert!(pct.unwrap() >= 0.0);
-    }
-
-    #[test]
-    fn two_point_no_calibration_returns_none() {
-        let (pct, done) = percent_from(50.0, &None, &None);
+    fn percent_from_no_calibration_returns_none() {
+        let (pct, done) = percent_from(50.0, &None);
         assert!(!done);
         assert!(pct.is_none());
+    }
+
+    #[test]
+    fn percent_from_zero_budget_returns_none() {
+        // A calibration with budget 0 is treated as uncalibrated (no divide-by-zero).
+        let c = Some(Calibration {
+            percent: 50.0,
+            budget: 0.0,
+            calibrated_at: 0,
+        });
+        let (pct, done) = percent_from(100.0, &c);
+        assert!(!done);
+        assert!(pct.is_none());
+    }
+
+    #[test]
+    fn percent_from_can_exceed_100() {
+        // Past the calibrated budget the bar goes over 100% (no clamp) — expected
+        // before a reset.
+        let c = cal(200.0);
+        let (pct, _) = percent_from(300.0, &c); // 300 / 200 * 100
+        assert!((pct.unwrap() - 150.0).abs() < 1e-6);
     }
 
     // --- weekly_usage ---

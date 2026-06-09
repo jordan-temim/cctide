@@ -20,19 +20,13 @@ pub struct Calibration {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// Calibration for the 5h session window (most recent point).
+    /// Calibration for the 5h session window. Single point: `budget = K/(pct/100)`,
+    /// then `percent = weighted/budget·100` (linear through the origin).
     #[serde(default)]
     pub session_calibration: Option<Calibration>,
-    /// Previous session calibration point; together with `session_calibration`
-    /// enables a two-point linear fit (`percent = a·tokens + b`).
-    #[serde(default)]
-    pub session_calibration_2: Option<Calibration>,
-    /// Calibration for the weekly limit (most recent point).
+    /// Calibration for the weekly limit (single point, same scheme).
     #[serde(default)]
     pub weekly_calibration: Option<Calibration>,
-    /// Previous weekly calibration point for the two-point linear fit.
-    #[serde(default)]
-    pub weekly_calibration_2: Option<Calibration>,
     /// Weekly reset date in ISO format `YYYY-MM-DD` (entered by the user).
     #[serde(default)]
     pub weekly_reset_date: Option<String>,
@@ -94,9 +88,7 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             session_calibration: None,
-            session_calibration_2: None,
             weekly_calibration: None,
-            weekly_calibration_2: None,
             weekly_reset_date: None,
             context_limits: HashMap::new(),
             refresh_secs: 60,
@@ -352,11 +344,6 @@ mod tests {
                 budget: 150.0,
                 calibrated_at: 2000,
             }),
-            session_calibration_2: Some(Calibration {
-                percent: 25.0,
-                budget: 120.0,
-                calibrated_at: 1000,
-            }),
             weekly_calibration: Some(Calibration {
                 percent: 60.0,
                 budget: 300.0,
@@ -375,7 +362,6 @@ mod tests {
         let parsed = super::parse_config(&json);
 
         assert!(parsed.session_calibration.is_some());
-        assert!(parsed.session_calibration_2.is_some());
         assert!(parsed.weekly_calibration.is_some());
         assert_eq!(parsed.weekly_reset_date, Some("2026-06-15".to_string()));
         assert_eq!(parsed.refresh_secs, 30);
