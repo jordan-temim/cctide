@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test": "vitest run",
     "tauri": "tauri",
     "build:mac": "npm run tauri build -- --target universal-apple-darwin && mkdir -p build && mv src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg build/",
     "build:win": "npm run tauri build && md build & move src-tauri\\target\\release\\bundle\\msi\\*.msi build\\"
@@ -17,7 +18,8 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "typescript": "~5.9.3",
     "vite": "^6.4.3",
-    "typescript": "~5.9.3"
+    "vitest": "^4.1.8"
   }
 }
