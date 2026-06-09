@@ -445,6 +445,15 @@ body {
 .check-row input[type="checkbox"] {
   accent-color: var(--accent);
 }
+.calib-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px var(--space);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
 .levels-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
