@@ -23,6 +23,7 @@ export interface SessionCtx {
   context_tokens: number;
   context_limit: number;
   percent: number | null;
+  title: string | null;
 }
 
 export interface MemoryFile {
@@ -68,9 +69,7 @@ export interface Config {
   alert_levels: number[];
   tracking_enabled: boolean;
   session_calibration: Calibration | null;
-  session_calibration_2: Calibration | null;
   weekly_calibration: Calibration | null;
-  weekly_calibration_2: Calibration | null;
 }
 
 export interface PanelData {

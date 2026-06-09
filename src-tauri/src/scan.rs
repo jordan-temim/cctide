@@ -49,6 +49,8 @@ struct CachedFile {
     /// Points from this file, deduplicated within the file.
     points: Vec<Point>,
     last_ctx: Option<LastCtx>,
+    /// First real user prompt — used as a human-readable session title.
+    first_prompt: Option<String>,
 }
 
 /// FNV-1a hash of a string → u64 (for the dedup key).
@@ -95,16 +97,55 @@ fn parse_ts(s: &str) -> Option<i64> {
         .map(|dt| dt.timestamp())
 }
 
-/// (Re)reads a JSONL file and returns its points (deduplicated within the file)
-/// and the last known context state.
-fn parse_file(path: &Path, pricing: &Models) -> (Vec<Point>, Option<LastCtx>) {
+/// First real user prompt in a transcript, trimmed to a title length. Skips tool
+/// results, slash-commands and local-command wrappers. Used to title a session.
+fn first_user_prompt(text: &str) -> Option<String> {
+    for line in text.lines() {
+        let line = line.trim();
+        if !line.contains("\"user\"") {
+            continue;
+        }
+        let Ok(rec) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if rec.get("type").and_then(|v| v.as_str()) != Some("user") {
+            continue;
+        }
+        let prompt = match rec.get("message").and_then(|m| m.get("content")) {
+            Some(Value::String(s)) => s.clone(),
+            Some(Value::Array(arr)) => arr
+                .iter()
+                .filter_map(|b| b.get("text").and_then(|v| v.as_str()))
+                .collect::<Vec<_>>()
+                .join(" "),
+            _ => continue,
+        };
+        let prompt = prompt.trim();
+        // Skip tool results, slash-commands, and local-command wrappers.
+        if prompt.is_empty() || prompt.starts_with('<') || prompt.starts_with('/') {
+            continue;
+        }
+        let line1 = prompt.lines().next().unwrap_or(prompt).trim();
+        // Cap to a short title length (<=35 chars), with an ellipsis if cut.
+        if line1.chars().count() > 35 {
+            return Some(format!("{}...", line1.chars().take(32).collect::<String>()));
+        }
+        return Some(line1.to_string());
+    }
+    None
+}
+
+/// (Re)reads a JSONL file and returns its points (deduplicated within the file),
+/// the last known context state, and the first user prompt (session title).
+fn parse_file(path: &Path, pricing: &Models) -> (Vec<Point>, Option<LastCtx>, Option<String>) {
     let mut points: Vec<Point> = Vec::new();
     let mut last_ctx: Option<LastCtx> = None;
     let mut seen_keys: HashSet<u64> = HashSet::new();
 
     let Ok(text) = std::fs::read_to_string(path) else {
-        return (points, last_ctx);
+        return (points, last_ctx, None);
     };
+    let first_prompt = first_user_prompt(&text);
     let path_str = path.to_string_lossy();
 
     for (line_no, line) in text.lines().enumerate() {
@@ -192,7 +233,7 @@ fn parse_file(path: &Path, pricing: &Models) -> (Vec<Point>, Option<LastCtx>) {
         });
     }
 
-    (points, last_ctx)
+    (points, last_ctx, first_prompt)
 }
 
 impl ScanCache {
@@ -234,7 +275,7 @@ impl ScanCache {
                 None => true,
             };
             if needs_parse {
-                let (points, last_ctx) = parse_file(path, pricing);
+                let (points, last_ctx, first_prompt) = parse_file(path, pricing);
                 self.files.insert(
                     pb,
                     CachedFile {
@@ -242,6 +283,7 @@ impl ScanCache {
                         size,
                         points,
                         last_ctx,
+                        first_prompt,
                     },
                 );
                 dirty = true;
@@ -326,6 +368,29 @@ impl ScanCache {
             .max_by_key(|(_, f)| f.mtime)
             .and_then(|(_, f)| f.last_ctx.clone())
     }
+
+    /// Human-readable title for a session: its first user prompt, resolved by
+    /// session id then by the most recent transcript in `cwd` (same fallback as
+    /// `last_ctx_for_session_or_cwd`). `None` if no transcript / no prompt yet.
+    pub fn first_prompt_for_session(&self, session_id: &str, cwd: &str) -> Option<String> {
+        if let Some(t) = self
+            .jsonl_for_session(session_id)
+            .and_then(|p| self.files.get(&p).and_then(|f| f.first_prompt.clone()))
+        {
+            return Some(t);
+        }
+        let enc = encode_cwd(cwd);
+        self.files
+            .iter()
+            .filter(|(p, _)| {
+                p.parent()
+                    .and_then(|d| d.file_name())
+                    .and_then(|n| n.to_str())
+                    == Some(enc.as_str())
+            })
+            .max_by_key(|(_, f)| f.mtime)
+            .and_then(|(_, f)| f.first_prompt.clone())
+    }
 }
 
 #[cfg(test)]
@@ -358,6 +423,7 @@ mod tests {
                 size: 0,
                 points: vec![p1],
                 last_ctx: None,
+                first_prompt: None,
             },
         );
         cache.files.insert(
@@ -367,6 +433,7 @@ mod tests {
                 size: 0,
                 points: vec![p2],
                 last_ctx: None,
+                first_prompt: None,
             },
         );
         cache.rebuild_points();
@@ -451,6 +518,7 @@ mod tests {
                     },
                 ],
                 last_ctx: None,
+                first_prompt: None,
             },
         );
 
@@ -476,6 +544,7 @@ mod tests {
                     },
                 ],
                 last_ctx: None,
+                first_prompt: None,
             },
         );
 
@@ -515,6 +584,7 @@ mod tests {
                     model: "opus".to_string(),
                     context_tokens: 50_000,
                 }),
+                first_prompt: None,
             },
         );
 
@@ -537,6 +607,7 @@ mod tests {
                 size: 500,
                 points: vec![],
                 last_ctx: None,
+                first_prompt: None,
             },
         );
         cache.files.insert(
@@ -546,6 +617,7 @@ mod tests {
                 size: 500,
                 points: vec![],
                 last_ctx: None,
+                first_prompt: None,
             },
         );
 
@@ -570,6 +642,7 @@ mod tests {
                 size: 500,
                 points: vec![],
                 last_ctx: None,
+                first_prompt: None,
             },
         );
 
@@ -577,5 +650,54 @@ mod tests {
         assert!(found.is_some());
         let found_path = found.unwrap();
         assert!(found_path.to_string_lossy().contains(&encoded));
+    }
+
+    // --- first_user_prompt ---
+
+    #[test]
+    fn first_user_prompt_takes_first_text_message() {
+        let text = concat!(
+            r#"{"type":"user","message":{"content":"hello there"}}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"usage":{}}}"#,
+            "\n",
+            r#"{"type":"user","message":{"content":"second"}}"#,
+        );
+        assert_eq!(first_user_prompt(text).as_deref(), Some("hello there"));
+    }
+
+    #[test]
+    fn first_user_prompt_from_text_blocks() {
+        let text = r#"{"type":"user","message":{"content":[{"type":"text","text":"from array"}]}}"#;
+        assert_eq!(first_user_prompt(text).as_deref(), Some("from array"));
+    }
+
+    #[test]
+    fn first_user_prompt_skips_tool_results_and_commands() {
+        let text = concat!(
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","content":"x"}]}}"#,
+            "\n",
+            r#"{"type":"user","message":{"content":"<command-name>/m</command-name>"}}"#,
+            "\n",
+            r#"{"type":"user","message":{"content":"/clear"}}"#,
+            "\n",
+            r#"{"type":"user","message":{"content":"real prompt"}}"#,
+        );
+        assert_eq!(first_user_prompt(text).as_deref(), Some("real prompt"));
+    }
+
+    #[test]
+    fn first_user_prompt_truncates_to_35_with_ellipsis() {
+        let long = "x".repeat(100);
+        let text = format!(r#"{{"type":"user","message":{{"content":"{long}"}}}}"#);
+        let t = first_user_prompt(&text).unwrap();
+        assert_eq!(t.chars().count(), 35);
+        assert!(t.ends_with("..."));
+    }
+
+    #[test]
+    fn first_user_prompt_none_without_prompt() {
+        let text = r#"{"type":"assistant","message":{"usage":{}}}"#;
+        assert_eq!(first_user_prompt(text), None);
     }
 }

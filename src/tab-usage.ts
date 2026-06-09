@@ -29,8 +29,9 @@ export function renderUsage(
     tierClass(weekly.percent, cfg.alert_levels),
   );
 
-  if (import.meta.env.DEV) {
-    const fmtPct = (p: number | null) => (p != null ? `${p.toFixed(2)}%` : "—");
+  {
+    const fmtPct = (p: number | null) =>
+      p != null ? (import.meta.env.DEV ? `≈${p.toFixed(2)}%` : `≈${p.toFixed(1)}%`) : "—";
     $<HTMLSpanElement>("dbg-session").textContent = fmtPct(session.percent);
     $<HTMLSpanElement>("dbg-weekly").textContent = fmtPct(weekly.percent);
   }
@@ -53,8 +54,9 @@ export function renderUsage(
     top.className = "session-top";
     const nameEl = document.createElement("span");
     nameEl.className = "session-name";
-    nameEl.textContent = shortCwd(s.cwd);
-    nameEl.title = s.cwd;
+    // Title from the conversation's first prompt; fall back to the folder name.
+    nameEl.textContent = s.title ?? shortCwd(s.cwd);
+    nameEl.title = `${shortCwd(s.cwd)} · ${s.cwd}`;
     const badgeEl = document.createElement("span");
     badgeEl.className = "badge";
     badgeEl.textContent = modelShort(s.model);
