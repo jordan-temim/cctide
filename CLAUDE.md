@@ -39,9 +39,10 @@ update without waiting for the next tick. The shimmer animation (5 frames ×
 400 ms sweep) plays on every `do_tick` call. macOS notifications need permission
 (requested at startup) and only surface reliably from the installed build.
 
-**Dev builds** show a small dot at the centre of the right C (black on macOS,
-orange on Windows/Linux), compiled in via `cfg!(debug_assertions)` and absent
-from release binaries.
+**Dev builds** draw a **"D" glyph inside the left C** (black on macOS, orange on
+Windows/Linux), compiled in via `cfg!(debug_assertions)` and absent from release
+binaries. It sits in the *left* C deliberately, so it never collides with the
+**"U" update glyph** drawn in the *right* C (see "Releases & auto-update").
 
 ## Local data sources (no network)
 
@@ -63,8 +64,8 @@ Everything is read from `~/.claude`:
   anchors, context-limit overrides, refresh interval, `notifications_enabled`,
   `alert_levels`, `dynamic_icon`, `tracking_enabled`.
 
-Pricing and model metadata are **not** in `~/.claude` — they ship with the app at
-[`models.json`](models.json).
+Quota weights, pricing and model metadata are **not** in `~/.claude` — they ship
+with the app at [`models.json`](models.json).
 
 A background ticker thread (spawned in `lib.rs` via `tick::start_ticker()`) re-evaluates usage every
 `refresh_secs` and fires native notifications via `notify.rs` when a threshold is
@@ -72,40 +73,38 @@ crossed — independently of whether the panel is open. It is edge-triggered: on
 notification per crossing, re-armed once the bar drops back below the threshold.
 
 The official weighted % from claude.ai is **not** stored locally, so the
-session/weekly bars are reconstructed by **two-point calibration**: the user
-reports the % shown by `/usage` twice (once at first launch, then again when
-cctide notifies them ~25 percentage-points later). The two points let cctide fit
-`percent = a·tokens + b`, correcting both scale error and any constant offset
-between local token weights and Anthropic's internal metering. Until the second
-point is saved the bar uses a single-point fallback (`budget = tokens / (pct/100)`).
-The two most recent calibration points are always kept; a third replaces the oldest.
+session/weekly bars are reconstructed by **single-point calibration**: the user
+reports the % shown by `/usage` **once**. cctide derives a budget
+(`budget = K_now / (percent/100)`) and then `percent = weighted / budget × 100`
+(linear through the origin). A single point currently suffices because the fitted
+relationship looks close to linear through the origin; the former two-point fit
+(`percent = a·tokens + b`) and its recalibration nudge were removed.
 
 **Plan-agnostic design.** cctide never stores or asks for the user's plan
 (Pro / Max 5× / Max 20×). The plan only changes the absolute size of the quota
 (what 100% is worth in tokens/dollars). Calibration captures this automatically.
-Per-model pricing ratios and the 5h/weekly window mechanics are identical across
-plans. If the user changes plans, they restart the two-step calibration.
+Per-model quota weights and the 5h/weekly window mechanics are identical across
+plans. If the user changes plans, they recalibrate once.
 
 ## Calculation model
 
-- Consumption is summed as **quota-weighted tokens**, using Anthropic's pricing
-  as the weights (per model), but **excluding cache reads**:
-  `weight = input·input_price + output·output_price + cache_write_5m·… +
-  cache_write_1h·…` (e.g. Opus 5/25, Sonnet 3/15, Haiku 1/5 for input/output).
-  Cache reads are omitted because Anthropic's rate-limit metering counts
-  `input + cache_creation` and **not** `cache_read`
-  (<https://platform.claude.com/docs/en/api/rate-limits>); counting them made the
-  estimate balloon with conversation length and drift upward. Raw cache-read
-  tokens are still shown in **Models used** (`scan::Point::tokens`).
+- Consumption is summed as **quota-weighted tokens** using **empirical quota
+  weights** (per model), not API prices:
+  `weight = input·w_in + output·w_out + cache_write_5m·w_5m + cache_write_1h·w_1h`
+  (cache reads are not currently fed in). The weights are **provisional estimates**
+  from the regression below, not published figures — the exact quota formula isn't
+  public, so treat them as a best-effort approximation refined as more data arrives.
 - **Model data is a JSON file shipped with the app**, not hard-coded:
   [`models.json`](models.json) at the app root, compiled into the binary via
-  `include_str!`. Contains per-model: input/output/cache-write weights ($/MTok,
-  **no cache_read**), context window (tokens). Edit it when Anthropic changes prices or releases new
-  models, then rebuild. Nothing is written to `~/.claude`. Parsing/fallback
-  defaults live in [`models.rs`](src-tauri/src/models.rs). Source:
-  <https://platform.claude.com/docs/en/about-claude/pricing> and
-  <https://platform.claude.com/docs/en/about-claude/models/overview>, **captured
-  2026-06-03**. Only the pricing ratios matter (calibration normalises scale).
+  `include_str!`. Each model carries **two independent weight sets**:
+  `input`/`output`/`cache_write_*` are the **$/MTok prices** (reference/info only),
+  and a **`quota`** block holds the empirical quota weights used by
+  `quota_units`. Plus context window (tokens). Edit it when Anthropic changes the
+  quota mechanics / prices or ships new models, then rebuild. Nothing is written to
+  `~/.claude`. Parsing/fallback defaults live in
+  [`models.rs`](src-tauri/src/models.rs). The quota weights are re-derivable from
+  scratch (see "Deriving the quota weights"). Only ratios matter (calibration
+  normalises scale).
 - Calibration absorbs the absolute scale: `budget = K_now / (percent/100)`,
   then `percent = weighted_now / budget × 100`.
 - **Session**: rolling 5h window. **Weekly**: rolling 7-day window anchored to
@@ -116,11 +115,37 @@ plans. If the user changes plans, they restart the two-step calibration.
   reset at first launch).
 - **Context per session**: full token sum of the latest assistant turn
   (`input + output + cache_creation + cache_read`) vs the model's context limit.
-  Claude Code uses an effective **200k-token context** for all current models,
-  regardless of a model's theoretical maximum (e.g. claude-sonnet-4-6 has a 1M
-  theoretical limit but Claude Code auto-compacts at 200k). All entries in
-  `models.json` use 200k as `context_window`. Verified 2026-05-31 via `/context`
+  Some models technically accept more than 200k tokens (e.g. claude-sonnet-4-6's
+  1M theoretical limit), but beyond ~200k answer quality tends to drop and each
+  turn gets far more token-hungry, so Claude Code works against an effective
+  **~200k context** (auto-compacting around there). All entries in `models.json`
+  use 200k as `context_window`. Verified 2026-05-31 via `/context`
   in Claude Code showing `148.5k / 200.0k` for a claude-sonnet-4-6 session.
+
+## Deriving the quota weights
+
+The `quota` weights in `models.json` are **empirical**, not guessed: they were fit
+by regressing the real `/usage` 5h % (ground truth) against the local token counts.
+The method:
+
+- Each **measurement point** pairs a 5h window's deduped token sums — per model
+  family and per category (input / output / cache_write_5m / cache_write_1h /
+  cache_read, plus request count and web-tool calls) — with the `/usage` % reported
+  at that instant. Points are taken right after `/usage`, anchored on the displayed
+  reset, so the measuring turn itself doesn't pollute the snapshot.
+- Candidate formulas are fit with **non-negative least squares** (NNLS; weights ≥ 0)
+  and ranked by **leave-one-window-out cross-validation** (LOWO-RMSE: drop a whole 5h
+  session and predict its points — honest error, since points inside one window are
+  auto-correlated). Confidence intervals come from a **block bootstrap over windows**.
+
+Preliminary observations (provisional, limited data — **not settled facts**): a
+plain price-as-weight model fits poorly; output appears to carry most of the
+weight; per-model differences look small; cache reads seem to matter little; and
+the fit looks close to linear through the origin (which is why a single calibration
+point currently suffices). The largest uncertainty is the `cache_write_1h`
+coefficient (output↔cache colinearity), which should tighten with more "divergent"
+points (big-cache / low-output sessions, e.g. resuming a long conversation). Re-run
+the collection as more data accrues, or if the quota mechanics seem to shift.
 
 ## Project layout (repo root)
 
@@ -155,7 +180,7 @@ src-tauri/
     notify.rs         threshold-crossing native notifications (de-duped)
     icon.rs           runtime CC-gauge tray icon (mac mono+blink / win colour)
     config.rs         persisted config load/save (calibration, thresholds)
-    models.rs         per-model data (models.json): pricing, context window
+    models.rs         per-model data (models.json): quota weights + prices, context window
 ```
 
 ## Develop / build
@@ -169,8 +194,14 @@ npm run tauri dev          # run with hot reload
 npm run build:mac          # macOS universal .dmg → build/  (run on a Mac)
 npm run build:win          # Windows .msi → build\          (run on a Windows machine)
 cargo check --manifest-path src-tauri/Cargo.toml    # fast Rust check
+cargo test --manifest-path src-tauri/Cargo.toml     # Rust unit tests
 npx tsc --noEmit           # frontend typecheck
+npm test                   # frontend unit tests (Vitest)
 ```
+
+Tests: Rust units live in each module's `#[cfg(test)]`; the frontend uses
+**Vitest** for pure helpers (e.g. `nextWeeklyReset` in `utils.ts` → `utils.test.ts`).
+Both run in CI (`lint.yml`).
 
 Builds are **unsigned** (no Apple/Windows code-signing certificate) — see
 `README.md` for the first-launch steps users must take.
