@@ -68,6 +68,10 @@ pub fn spawn_update_check(app: &tauri::AppHandle) {
                     };
                     UPDATE_AVAILABLE.store(true, Ordering::SeqCst);
                     let _ = app.emit("UPDATE_AVAILABLE", ());
+                    // Immediately redraw the tray icon so the "U" glyph appears
+                    // without waiting for the next ticker cycle.
+                    let app_tick = app.clone();
+                    std::thread::spawn(move || crate::tick::do_tick(&app_tick, &mut None, false));
                     if is_new {
                         let _ = app
                             .notification()
