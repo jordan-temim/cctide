@@ -129,6 +129,8 @@ impl Default for Models {
         };
         let std = QuotaWeights::default;
         let mut models = BTreeMap::new();
+        models.insert("fable-5".into(), entry(10.0, 50.0, 12.5, 20.0, std()));
+        models.insert("fable".into(), entry(10.0, 50.0, 12.5, 20.0, std()));
         models.insert("opus-4-8".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
         models.insert("opus-4-7".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
         models.insert("opus-4-6".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
@@ -412,6 +414,17 @@ mod tests {
             );
         }
         assert_eq!(m.default.context_window, 200_000);
+    }
+
+    #[test]
+    fn fable_matches_and_counts_like_top_tier() {
+        let models = m();
+        let e = models.entry_for("claude-fable-5");
+        assert!((e.input - 10.0).abs() < 1e-9, "expected fable pricing");
+        // Quota: same weights as opus/sonnet (output=1.0) until measured otherwise.
+        let fable = models.quota_units("claude-fable-5", 0, 1000, 0, 100);
+        let sonnet = models.quota_units("claude-sonnet-4-6", 0, 1000, 0, 100);
+        assert!((fable - sonnet).abs() < 1e-9);
     }
 
     // --- embedded models.json carries quota weights ---
