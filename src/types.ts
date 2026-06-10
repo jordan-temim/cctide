@@ -4,6 +4,7 @@ export interface SessionUsage {
   weighted_tokens: number;
   percent: number | null;
   calibrated: boolean;
+  eta_secs: number | null;
 }
 
 export interface WeeklyUsage {
@@ -17,6 +18,7 @@ export interface WeeklyUsage {
 
 export interface SessionCtx {
   session_id: string;
+  pid: number;
   cwd: string;
   version: string;
   model: string | null;
@@ -24,6 +26,10 @@ export interface SessionCtx {
   context_limit: number;
   percent: number | null;
   title: string | null;
+  entrypoint: string | null;
+  status: string | null;
+  updated_at: number | null;
+  weighted_5h: number;
 }
 
 export interface MemoryFile {

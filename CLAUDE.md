@@ -12,14 +12,15 @@ A macOS menu-bar / Windows system-tray app that shows Claude Code usage,
 similar to `claude.ai/settings/usage`, but **100% local — it never calls the
 Anthropic API**. Built with **Tauri v2** (Rust backend + web UI).
 
-The panel is organized into **four tabs** (Usage, Settings, Analytics, Extras):
+The panel is organized into **five tabs** (Usage, Sessions, Settings, Analytics, Extras):
 
-1. **Usage tab** — **Session (5h)** (15-segment fuel-gauge bar, rolling 5-hour window), **Weekly limit** (15-segment fuel-gauge bar, anchored to user-entered reset date), and **Open sessions** (each active session's context-window fill, e.g. 150k/200k).
-2. **Settings tab** — **Calibrate** (date picker + % fields to anchor the session/weekly bars), and **System notifications** (toggle + three configurable alert levels, default 33 / 66 / 90 %).
-3. **Analytics tab** — **Weekly window** (chart of token consumption per model in the current 7-day window), and **Memory** (read-only viewer of active sessions' project memory files).
-4. **Extras tab** — **RTK** (tokens saved, only shown if the `rtk` binary is installed).
+1. **Usage tab** — **Session (5h)** (15-segment fuel-gauge bar, rolling 5-hour window) and **Weekly limit** (15-segment fuel-gauge bar, anchored to user-entered reset date).
+2. **Sessions tab** — **Open sessions**: one entry per interactive session (sub-agent processes are filtered out via the session file's `kind`), showing context-window fill (e.g. 150k/200k), share of the current 5h window's consumption, idle/active status + last activity, and a VSCode/CLI badge. Per-session actions (two-step inline confirmation): **Copy resume** (`claude --resume <id>`), **Close** (SIGTERM the process), **Delete** (remove the transcript `.jsonl`; if the session has activity in the current 5h window, a reinforced warning explains the gauges will under-count until the next reset and to recalibrate after). A **Clean orphans** button removes `sessions/<pid>.json` files whose process is dead. Also hosts **Memory** (viewer of active sessions' project memory files, with per-file delete that also drops the file's line from the `MEMORY.md` index).
+3. **Settings tab** — **Calibrate** (date picker + % fields to anchor the session/weekly bars), and **System notifications** (toggle + three configurable alert levels, default 33 / 66 / 90 %).
+4. **Analytics tab** — **Weekly window** (chart of token consumption per model in the current 7-day window).
+5. **Extras tab** — **RTK** (tokens saved, only shown if the `rtk` binary is installed).
 
-**Header controls.** Top-right of the panel: last-refresh timestamp + a **tracking toggle** (pause/resume all data refresh and icon updates; when off, the tray icon shows a diagonal slash over the empty C's). Below the header: four **tab buttons** (Usage, Settings, Analytics, Extras) to switch between sections.
+**Header controls.** Top-right of the panel: last-refresh timestamp + a **tracking toggle** (pause/resume all data refresh and icon updates; when off, the tray icon shows a diagonal slash over the empty C's). Below the header: five **tab buttons** (Usage, Sessions, Settings, Analytics, Extras) to switch between sections.
 
 **Unified alert levels.** The three levels (default 33/66/90%, configured in Settings tab under "System notifications")
 drive everything at once — the session/weekly **segment colours**, the **tray icon**,
@@ -55,8 +56,9 @@ Everything is read from `~/.claude`:
   (`scan.rs`): transcripts log the same API response multiple times (resumes,
   sidechains, multiple files), which would otherwise ~2× the counts.
 - **Active sessions**: `~/.claude/sessions/<pid>.json` — one per running Claude
-  Code process (`pid`, `sessionId`, `cwd`, `version`). PIDs are checked for
-  liveness.
+  Code process (`pid`, `sessionId`, `cwd`, `version`, plus on recent versions
+  `kind`, `entrypoint`, `status`, `updatedAt`). PIDs are checked for liveness;
+  non-`interactive` kinds are filtered out.
 - **Memory**: `~/.claude/projects/<project>/memory/*.md`.
 - **App config**: the app's own data dir from the bundle id `com.cctide`
   (macOS `~/Library/Application Support/com.cctide/cctide.json`; Windows
@@ -154,9 +156,10 @@ src/                  Frontend (Vite + vanilla TS)
   index.html
   main.ts             App entry point + tab routing + event listener
   styles.css
-  tab-usage.ts        Usage tab: session/weekly bars + open sessions
+  tab-usage.ts        Usage tab: session/weekly bars
+  tab-sessions.ts     Sessions tab: open sessions + actions + memory viewer
   tab-settings.ts     Settings tab: calibration + notification levels
-  tab-analytics.ts    Analytics tab: weekly window chart + memory viewer
+  tab-analytics.ts    Analytics tab: weekly window chart
   tab-extras.ts       Extras tab: RTK integration
   types.ts            Shared TypeScript types (PanelData, Config, etc.)
   update.ts           Update banner + install/restart logic

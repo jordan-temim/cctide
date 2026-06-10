@@ -5,8 +5,9 @@ import { getVersion } from "@tauri-apps/api/app";
 
 import { $, updateLastUpdated } from "./utils";
 import { renderUsage } from "./tab-usage";
+import { renderSessions, setupSessions, loadMemory } from "./tab-sessions";
 import { setupCalibration, setupNotifications } from "./tab-settings";
-import { renderChart, loadMemory } from "./tab-analytics";
+import { renderChart } from "./tab-analytics";
 import { renderRtk } from "./tab-extras";
 import { renderUpdateBanner, setupUpdate } from "./update";
 import type { PanelData, Config } from "./types";
@@ -15,7 +16,8 @@ async function refresh() {
   const data = await invoke<PanelData>("get_panel_data");
   const { session, weekly, sessions, chart, config: cfg, rtk } = data;
   renderUpdateBanner(data.update);
-  renderUsage(session, weekly, sessions, cfg);
+  renderUsage(session, weekly, cfg);
+  renderSessions(session, sessions);
   renderChart(chart);
   renderRtk(rtk);
   updateLastUpdated();
@@ -68,6 +70,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   setupAutoResize();
   setupUpdate();
   setupTabs();
+  setupSessions(refresh);
   setupCollapse("sessions-toggle", "sessions-body");
   setupCollapse("memory-toggle", "memory-body", loadMemory);
   const osName = navigator.userAgent.toLowerCase().includes("mac") ? "macOS" : "Windows";

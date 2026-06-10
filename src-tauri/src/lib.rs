@@ -67,6 +67,10 @@ pub fn run() {
             commands::set_calibration,
             commands::set_notifications,
             commands::set_tracking,
+            commands::kill_session,
+            commands::delete_session_transcript,
+            commands::cleanup_stale_sessions,
+            commands::delete_memory_file,
             update_svc::install_update,
             update_svc::restart_app,
         ])

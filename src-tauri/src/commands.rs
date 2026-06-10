@@ -55,7 +55,8 @@ pub fn get_panel_data(state: tauri::State<AppState>) -> PanelData {
     let points = cache.all_points();
     let session = usage::session_usage(&points, &cfg, now);
     let weekly = usage::weekly_usage(&points, &cfg, now);
-    let active = context::active_sessions(&cache, &cfg, &sys, &state.models);
+    let active =
+        context::active_sessions(&cache, &cfg, &sys, &state.models, session.window_start, now);
 
     let today_start = {
         use chrono::{Local, TimeZone};
@@ -122,10 +123,11 @@ pub fn get_memory(state: tauri::State<AppState>) -> Vec<memory::MemoryFile> {
     refresh_system(&state);
     let cache = state.cache.lock().expect("cache poisoned");
     let sys = state.system.lock().expect("system poisoned");
-    let cwds: Vec<String> = context::active_sessions(&cache, &cfg, &sys, &state.models)
-        .into_iter()
-        .map(|s| s.cwd)
-        .collect();
+    let cwds: Vec<String> =
+        context::active_sessions(&cache, &cfg, &sys, &state.models, None, now_ts())
+            .into_iter()
+            .map(|s| s.cwd)
+            .collect();
     memory::read_memory(&cache, &cwds)
 }
 
@@ -138,6 +140,151 @@ pub fn get_config(state: tauri::State<AppState>) -> config::Config {
         .lock()
         .expect("config_cache poisoned")
         .clone()
+}
+
+// ---------------------------------------------------------------------------
+// Session management (Sessions tab) — kill / delete / clean up. Every path is
+// resolved server-side from ids, never taken verbatim from the frontend, except
+// memory files whose paths are validated against the projects tree.
+// ---------------------------------------------------------------------------
+
+/// True if `pid` is declared by a `~/.claude/sessions/<pid>.json` file — the
+/// only processes this app is allowed to terminate.
+fn is_session_pid(pid: u32) -> bool {
+    let Some(dir) = context::sessions_dir() else {
+        return false;
+    };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries
+        .flatten()
+        .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("json"))
+        .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+        .filter_map(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .any(|v| v.get("pid").and_then(|p| p.as_u64()) == Some(pid as u64))
+}
+
+/// Terminates a running Claude Code session process (graceful TERM where
+/// supported, hard kill otherwise). The pid must belong to a declared session.
+#[tauri::command]
+pub fn kill_session(state: tauri::State<AppState>, pid: u32) -> Result<(), String> {
+    if !is_session_pid(pid) {
+        return Err("pid does not belong to a Claude Code session".into());
+    }
+    refresh_system(&state);
+    let sys = state.system.lock().expect("system poisoned");
+    let proc = sys
+        .process(sysinfo::Pid::from_u32(pid))
+        .ok_or("process already gone")?;
+    let killed = proc
+        .kill_with(sysinfo::Signal::Term)
+        .unwrap_or_else(|| proc.kill());
+    if killed {
+        Ok(())
+    } else {
+        Err("failed to terminate the process".into())
+    }
+}
+
+/// Deletes a session's transcript (`<sessionId>.jsonl`). The file is resolved
+/// from the scan cache, so only files inside `~/.claude/projects` can match.
+/// The caller is responsible for having warned the user when the session has
+/// activity in the current 5h window (the gauge will under-count until reset).
+#[tauri::command]
+pub fn delete_session_transcript(
+    app: tauri::AppHandle,
+    state: tauri::State<AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    refresh_cache(&state);
+    let path = {
+        let cache = state.cache.lock().expect("cache poisoned");
+        cache
+            .jsonl_for_session(&session_id)
+            .ok_or("transcript not found")?
+    };
+    std::fs::remove_file(&path).map_err(|e| format!("delete failed: {e}"))?;
+    refresh_cache(&state);
+    std::thread::spawn(move || do_tick(&app, &mut None, true));
+    Ok(())
+}
+
+/// Removes `~/.claude/sessions/<pid>.json` files whose process is gone.
+/// Returns the number of files removed.
+#[tauri::command]
+pub fn cleanup_stale_sessions(state: tauri::State<AppState>) -> Result<u32, String> {
+    let dir = context::sessions_dir().ok_or("no home directory")?;
+    let entries = std::fs::read_dir(&dir).map_err(|e| format!("read failed: {e}"))?;
+    refresh_system(&state);
+    let sys = state.system.lock().expect("system poisoned");
+
+    let mut removed = 0u32;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|x| x.to_str()) != Some("json") {
+            continue;
+        }
+        let Some(pid) = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            .and_then(|v| v.get("pid").and_then(|p| p.as_u64()))
+        else {
+            continue;
+        };
+        if sys.process(sysinfo::Pid::from_u32(pid as u32)).is_none()
+            && std::fs::remove_file(&path).is_ok()
+        {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+/// Deletes one project memory file. The path must resolve to a real `.md` file
+/// inside `~/.claude/projects/<project>/memory/`. When an index (`MEMORY.md`)
+/// sits next to it, its line referencing the file is dropped (best effort).
+#[tauri::command]
+pub fn delete_memory_file(path: String) -> Result<(), String> {
+    let canon = std::path::Path::new(&path)
+        .canonicalize()
+        .map_err(|_| "file not found")?;
+    if canon.extension().and_then(|x| x.to_str()) != Some("md") {
+        return Err("not a memory file".into());
+    }
+    let root = crate::scan::projects_dir()
+        .ok_or("no home directory")?
+        .canonicalize()
+        .map_err(|_| "projects dir not found")?;
+    let parent = canon.parent().ok_or("invalid path")?;
+    if !canon.starts_with(&root) || parent.file_name().and_then(|n| n.to_str()) != Some("memory") {
+        return Err("path is outside the memory directories".into());
+    }
+
+    let name = canon
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or("invalid path")?
+        .to_string();
+    std::fs::remove_file(&canon).map_err(|e| format!("delete failed: {e}"))?;
+
+    // Drop the deleted file's line from the MEMORY.md index, if present.
+    if name != "MEMORY.md" {
+        let index = parent.join("MEMORY.md");
+        if let Ok(text) = std::fs::read_to_string(&index) {
+            let _ = std::fs::write(&index, drop_index_lines(&text, &name));
+        }
+    }
+    Ok(())
+}
+
+/// Removes from a MEMORY.md index the lines whose markdown link targets the
+/// deleted file — i.e. lines containing `(<name>)`, the link-target part of
+/// `- [Title](<name>) — hook`.
+fn drop_index_lines(index: &str, name: &str) -> String {
+    let target = format!("({name})");
+    let kept: Vec<&str> = index.lines().filter(|l| !l.contains(&target)).collect();
+    kept.join("\n") + "\n"
 }
 
 // ---------------------------------------------------------------------------
@@ -231,4 +378,43 @@ pub fn set_calibration(
     *state.config_cache.lock().expect("config_cache poisoned") = cfg;
     std::thread::spawn(move || do_tick(&app, &mut None, true));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::drop_index_lines;
+
+    #[test]
+    fn drop_index_lines_removes_only_the_target_link() {
+        let index = "# Memory Index\n\n\
+            - [Foo](foo.md) — about foo\n\
+            - [Bar](bar.md) — about bar\n";
+        let out = drop_index_lines(index, "foo.md");
+        assert!(!out.contains("foo.md"));
+        assert!(out.contains("(bar.md)"));
+        assert!(out.contains("# Memory Index"));
+    }
+
+    #[test]
+    fn drop_index_lines_does_not_match_suffixed_names() {
+        // `(foo.md)` must not match `(bar-foo.md)` — the opening paren anchors
+        // the link target's start.
+        let index = "- [Bar foo](bar-foo.md) — composite name\n";
+        let out = drop_index_lines(index, "foo.md");
+        assert!(out.contains("(bar-foo.md)"));
+    }
+
+    #[test]
+    fn drop_index_lines_no_match_keeps_text_intact() {
+        let index = "- [Foo](foo.md) — hook\n";
+        assert_eq!(drop_index_lines(index, "missing.md"), index);
+    }
+
+    #[test]
+    fn drop_index_lines_mention_without_link_is_kept() {
+        // A plain-text mention of the name is not a link target → kept.
+        let index = "- [Other](other.md) — see also foo.md\n";
+        let out = drop_index_lines(index, "foo.md");
+        assert!(out.contains("(other.md)"));
+    }
 }

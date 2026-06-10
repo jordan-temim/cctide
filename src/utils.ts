@@ -49,10 +49,26 @@ export function modelLabel(m: string): string {
 
 export function modelShort(m: string | null): string {
   if (!m) return "?";
+  if (m.includes("fable")) return "Fable";
   if (m.includes("opus")) return "Opus";
   if (m.includes("sonnet")) return "Sonnet";
   if (m.includes("haiku")) return "Haiku";
   return m;
+}
+
+export function entrypointShort(ep: string): string {
+  if (ep === "cli") return "CLI";
+  if (ep === "claude-vscode") return "VSCode";
+  return ep;
+}
+
+// Compact "last activity" label. `nowMs` is injectable for tests.
+export function timeAgo(ts: number, nowMs = Date.now()): string {
+  const secs = Math.max(0, Math.floor(nowMs / 1000) - ts);
+  if (secs < 60) return "just now";
+  if (secs < 3600) return `${Math.floor(secs / 60)} min ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)} h ago`;
+  return `${Math.floor(secs / 86400)} d ago`;
 }
 
 export function updateLastUpdated() {

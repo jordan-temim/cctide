@@ -1,9 +1,8 @@
-import { invoke } from "@tauri-apps/api/core";
-import { openPath } from "@tauri-apps/plugin-opener";
 import { $, fmt, modelLabel } from "./utils";
-import type { DayBucket, MemoryFile } from "./types";
+import type { DayBucket } from "./types";
 
 const MODEL_COLORS: Record<string, string> = {
+  fable: "var(--fable)",
   opus: "var(--accent)",
   sonnet: "var(--neutral)",
   haiku: "var(--ok)",
@@ -41,7 +40,7 @@ export function renderChart(buckets: DayBucket[]) {
     for (const m of b.by_model)
       if (m.model && !m.model.startsWith("<")) modelSet.add(m.model);
 
-  const MODEL_ORDER = ["haiku", "sonnet", "opus"];
+  const MODEL_ORDER = ["haiku", "sonnet", "opus", "fable"];
   const models = Array.from(modelSet).sort((a, b) => {
     const ai = MODEL_ORDER.findIndex((k) => a.includes(k));
     const bi = MODEL_ORDER.findIndex((k) => b.includes(k));
@@ -137,45 +136,5 @@ export function renderChart(buckets: DayBucket[]) {
       legend.appendChild(item);
     }
     container.appendChild(legend);
-  }
-}
-
-export async function loadMemory() {
-  const body = $<HTMLDivElement>("memory-body");
-  const files = await invoke<MemoryFile[]>("get_memory");
-  body.innerHTML = "";
-  if (files.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    empty.textContent = "No memory for the active sessions";
-    body.appendChild(empty);
-    return;
-  }
-  for (const f of files) {
-    const item = document.createElement("div");
-    item.className = "mem-file";
-    const head = document.createElement("button");
-    head.className = "mem-head";
-    const nameSpan = document.createElement("span");
-    nameSpan.textContent = f.name;
-    const openSpan = document.createElement("span");
-    openSpan.className = "open";
-    openSpan.title = "Open";
-    openSpan.textContent = "↗";
-    head.appendChild(nameSpan);
-    head.appendChild(openSpan);
-    const pre = document.createElement("pre");
-    pre.className = "mem-content hidden";
-    pre.textContent = f.content;
-    head.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).classList.contains("open")) {
-        openPath(f.path).catch(() => {});
-        return;
-      }
-      pre.classList.toggle("hidden");
-    });
-    item.appendChild(head);
-    item.appendChild(pre);
-    body.appendChild(item);
   }
 }

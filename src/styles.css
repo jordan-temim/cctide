@@ -11,6 +11,7 @@
   --danger: #d0392b;
   --accent: #d97757;  /* Claude terracotta */
   --neutral: #5b8fd6; /* slate blue — tier-0 gauge colour */
+  --fable: #9b59b6;   /* purple — fable models in charts */
   --tier-1: #2e9e6b;  /* green  */
   --tier-2: #d4a017;  /* amber  */
   --tier-3: #d0392b;  /* red    */
@@ -133,7 +134,7 @@ body {
   font-weight: 500;
   margin-bottom: var(--space-sm);
 }
-.dbg-pct {
+.bar-pct {
   font-size: 10px;
   font-weight: 400;
   font-variant-numeric: tabular-nums;
@@ -230,6 +231,12 @@ body {
   margin-top: 5px;
 }
 
+.bar-eta-head {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
 /* Tab bar (pill style) */
 .tab-bar {
   display: flex;
@@ -312,6 +319,13 @@ body {
   flex-direction: column;
   gap: var(--space);
 }
+/* Each session sits in the same grey card as the Settings groups. */
+.session {
+  padding: 8px var(--space);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
 .session-top {
   display: flex;
   justify-content: space-between;
@@ -321,6 +335,78 @@ body {
 }
 .session-name {
   font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+}
+.status-dot.active {
+  background: var(--ok);
+}
+.session-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+}
+.session-activity {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--muted);
+}
+.act-btn {
+  font-size: 10px;
+  background: var(--track);
+  color: var(--muted);
+  border: none;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.act-btn:hover {
+  color: var(--text);
+}
+.act-btn.danger {
+  background: var(--danger);
+  color: #fff;
+}
+.act-btn.accent {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.act-btn.accent:hover {
+  color: #fff;
+  filter: brightness(1.1);
+}
+.warn-note {
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--danger);
+}
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* Pushes the rest of the legend row to the right. */
+.legend-left {
+  margin-right: auto;
+}
+/* .sub's top margin (made for bar subtitles) breaks vertical centering here. */
+.legend-left .sub {
+  margin-top: 0;
 }
 .badge {
   font-size: 10px;
@@ -328,6 +414,11 @@ body {
   color: var(--muted);
   border-radius: 4px;
   padding: 1px 6px;
+}
+.badges {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 /* Settings sub-sections (Calibrate / Notifications inside the Settings block) */
@@ -410,6 +501,21 @@ body {
 }
 .mem-head .open {
   color: var(--muted);
+}
+.mem-head span:first-child {
+  flex: 1;
+  text-align: left;
+}
+.mem-head .mem-del {
+  color: var(--muted);
+  margin-right: 8px;
+}
+.mem-head .mem-del:hover {
+  color: var(--danger);
+}
+.mem-head .mem-del.danger {
+  color: var(--danger);
+  font-weight: 600;
 }
 .mem-content {
   margin-top: var(--space-sm);

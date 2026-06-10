@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nextWeeklyReset } from "./utils";
+import { nextWeeklyReset, entrypointShort, modelShort, timeAgo } from "./utils";
 
 const WEEK_MS = 7 * 24 * 3600 * 1000;
 const FMT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
@@ -53,5 +53,53 @@ describe("nextWeeklyReset", () => {
   it("returns invalid input unchanged", () => {
     expect(nextWeeklyReset("not-a-date")).toBe("not-a-date");
     expect(nextWeeklyReset("")).toBe("");
+  });
+});
+
+describe("entrypointShort", () => {
+  it("maps known entrypoints to display labels", () => {
+    expect(entrypointShort("cli")).toBe("CLI");
+    expect(entrypointShort("claude-vscode")).toBe("VSCode");
+  });
+
+  it("passes unknown entrypoints through unchanged", () => {
+    expect(entrypointShort("claude-jetbrains")).toBe("claude-jetbrains");
+  });
+});
+
+describe("modelShort", () => {
+  it("collapses model ids to their family name", () => {
+    expect(modelShort("claude-fable-5")).toBe("Fable");
+    expect(modelShort("claude-opus-4-8")).toBe("Opus");
+    expect(modelShort("claude-sonnet-4-6")).toBe("Sonnet");
+    expect(modelShort("claude-haiku-4-5-20251001")).toBe("Haiku");
+  });
+
+  it("returns ? for null and unknown ids unchanged", () => {
+    expect(modelShort(null)).toBe("?");
+    expect(modelShort("mystery-model")).toBe("mystery-model");
+  });
+});
+
+describe("timeAgo", () => {
+  const NOW_MS = 1_000_000_000 * 1000; // fixed "now", Unix seconds 1_000_000_000
+  const at = (secsAgo: number) => timeAgo(1_000_000_000 - secsAgo, NOW_MS);
+
+  it("under a minute is 'just now'", () => {
+    expect(at(0)).toBe("just now");
+    expect(at(59)).toBe("just now");
+  });
+
+  it("minutes, hours, days tiers", () => {
+    expect(at(60)).toBe("1 min ago");
+    expect(at(3599)).toBe("59 min ago");
+    expect(at(3600)).toBe("1 h ago");
+    expect(at(86399)).toBe("23 h ago");
+    expect(at(86400)).toBe("1 d ago");
+    expect(at(3 * 86400)).toBe("3 d ago");
+  });
+
+  it("clamps future timestamps to 'just now'", () => {
+    expect(at(-120)).toBe("just now");
   });
 });

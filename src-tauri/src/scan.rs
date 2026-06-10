@@ -346,16 +346,10 @@ impl ScanCache {
             .map(|d| d.to_path_buf())
     }
 
-    /// Resolves a session's context: by session id, else the most recently
-    /// modified transcript in the session's `cwd` project folder (handles
-    /// resumed sessions whose live transcript keeps a different id).
-    pub fn last_ctx_for_session_or_cwd(&self, session_id: &str, cwd: &str) -> Option<LastCtx> {
-        if let Some(ctx) = self
-            .jsonl_for_session(session_id)
-            .and_then(|p| self.last_ctx_for(&p))
-        {
-            return Some(ctx);
-        }
+    /// Most recently modified transcript in the project folder of `cwd` — the
+    /// fallback when a session has no transcript under its own id (resumed
+    /// sessions keep writing to the original conversation's file).
+    pub fn latest_jsonl_for_cwd(&self, cwd: &str) -> Option<PathBuf> {
         let enc = encode_cwd(cwd);
         self.files
             .iter()
@@ -366,30 +360,47 @@ impl ScanCache {
                     == Some(enc.as_str())
             })
             .max_by_key(|(_, f)| f.mtime)
-            .and_then(|(_, f)| f.last_ctx.clone())
+            .map(|(p, _)| p.clone())
     }
 
-    /// Human-readable title for a session: its first user prompt, resolved by
-    /// session id then by the most recent transcript in `cwd` (same fallback as
-    /// `last_ctx_for_session_or_cwd`). `None` if no transcript / no prompt yet.
-    pub fn first_prompt_for_session(&self, session_id: &str, cwd: &str) -> Option<String> {
-        if let Some(t) = self
-            .jsonl_for_session(session_id)
-            .and_then(|p| self.files.get(&p).and_then(|f| f.first_prompt.clone()))
-        {
-            return Some(t);
+    /// First user prompt of a transcript (used as the session title).
+    pub fn first_prompt_for(&self, path: &Path) -> Option<String> {
+        self.files.get(path).and_then(|f| f.first_prompt.clone())
+    }
+
+    /// Last-modified time of a transcript, Unix seconds. The transcript is
+    /// written on every turn, so this is a reliable last-activity signal.
+    pub fn mtime_for(&self, path: &Path) -> Option<i64> {
+        self.files.get(path).map(|f| f.mtime).filter(|m| *m > 0)
+    }
+
+    /// Test-only: registers a bare transcript (mtime only) so other modules'
+    /// tests can shape the cache (`files` is private).
+    #[cfg(test)]
+    pub(crate) fn insert_test_transcript(&mut self, path: PathBuf, mtime: i64) {
+        self.files.insert(
+            path,
+            CachedFile {
+                mtime,
+                ..Default::default()
+            },
+        );
+    }
+
+    /// Sum of a transcript's weighted tokens within `[from, now]`. Uses the
+    /// file's own within-file-deduped points: cross-file duplicates are not
+    /// subtracted, which is acceptable for a per-session breakdown (the global
+    /// gauges stay fully deduped).
+    pub fn weighted_for_file(&self, path: &Path, from: i64, now: i64) -> f64 {
+        match self.files.get(path) {
+            Some(f) => f
+                .points
+                .iter()
+                .filter(|p| p.ts >= from && p.ts <= now)
+                .map(|p| p.weighted)
+                .sum(),
+            None => 0.0,
         }
-        let enc = encode_cwd(cwd);
-        self.files
-            .iter()
-            .filter(|(p, _)| {
-                p.parent()
-                    .and_then(|d| d.file_name())
-                    .and_then(|n| n.to_str())
-                    == Some(enc.as_str())
-            })
-            .max_by_key(|(_, f)| f.mtime)
-            .and_then(|(_, f)| f.first_prompt.clone())
     }
 }
 
@@ -561,38 +572,43 @@ mod tests {
         );
     }
 
-    // --- last_ctx_for_session_or_cwd ---
+    // --- latest_jsonl_for_cwd ---
 
     #[test]
-    fn last_ctx_fallback_to_cwd_when_session_not_found() {
+    fn latest_jsonl_for_cwd_picks_most_recent() {
         let mut cache = ScanCache::default();
-        let session_id = "unknown-sess";
         let cwd = "/home/user/proj";
         let encoded_cwd = encode_cwd(cwd);
 
-        // Set up a file in the project folder for the cwd.
-        let project_path = PathBuf::from(format!(
-            "/root/.claude/projects/{encoded_cwd}/session1.jsonl"
-        ));
-        cache.files.insert(
-            project_path,
-            CachedFile {
-                mtime: 123,
-                size: 500,
-                points: vec![],
-                last_ctx: Some(LastCtx {
-                    model: "opus".to_string(),
-                    context_tokens: 50_000,
-                }),
-                first_prompt: None,
-            },
-        );
+        for (name, mtime) in [("old", 100), ("new", 200)] {
+            cache.files.insert(
+                PathBuf::from(format!("/root/.claude/projects/{encoded_cwd}/{name}.jsonl")),
+                CachedFile {
+                    mtime,
+                    size: 500,
+                    points: vec![],
+                    last_ctx: Some(LastCtx {
+                        model: "opus".to_string(),
+                        context_tokens: 50_000,
+                    }),
+                    first_prompt: None,
+                },
+            );
+        }
 
-        let ctx = cache.last_ctx_for_session_or_cwd(session_id, cwd);
-        assert!(ctx.is_some());
-        let ctx_unwrapped = ctx.unwrap();
-        assert_eq!(ctx_unwrapped.model, "opus");
-        assert_eq!(ctx_unwrapped.context_tokens, 50_000);
+        let path = cache.latest_jsonl_for_cwd(cwd);
+        assert!(path.is_some());
+        let path = path.unwrap();
+        assert!(path.to_string_lossy().contains("new.jsonl"));
+        // The resolved path feeds the path-based getters.
+        assert_eq!(cache.last_ctx_for(&path).unwrap().context_tokens, 50_000);
+        assert_eq!(cache.mtime_for(&path), Some(200));
+    }
+
+    #[test]
+    fn latest_jsonl_for_cwd_none_for_unknown_project() {
+        let cache = ScanCache::default();
+        assert!(cache.latest_jsonl_for_cwd("/nowhere").is_none());
     }
 
     #[test]
@@ -650,6 +666,49 @@ mod tests {
         assert!(found.is_some());
         let found_path = found.unwrap();
         assert!(found_path.to_string_lossy().contains(&encoded));
+    }
+
+    // --- weighted_for_file ---
+
+    #[test]
+    fn weighted_for_file_sums_window_only() {
+        let mut cache = ScanCache::default();
+        let path = PathBuf::from("/root/.claude/projects/proj/sess1.jsonl");
+        cache.files.insert(
+            path.clone(),
+            CachedFile {
+                mtime: 100,
+                size: 500,
+                points: vec![
+                    pt_for(1_000, 10.0),
+                    pt_for(2_000, 20.0),
+                    pt_for(9_000, 99.0),
+                ],
+                last_ctx: None,
+                first_prompt: None,
+            },
+        );
+        // Window [1_000, 5_000] keeps the first two points only.
+        let w = cache.weighted_for_file(&path, 1_000, 5_000);
+        assert!((w - 30.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn weighted_for_file_unknown_returns_zero() {
+        let cache = ScanCache::default();
+        assert_eq!(
+            cache.weighted_for_file(Path::new("/none.jsonl"), 0, 10_000),
+            0.0
+        );
+    }
+
+    fn pt_for(ts: i64, weighted: f64) -> Point {
+        Point {
+            ts,
+            weighted,
+            model: "claude-sonnet-4-6".to_string(),
+            key: ts as u64,
+        }
     }
 
     // --- first_user_prompt ---
