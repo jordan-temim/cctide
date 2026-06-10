@@ -22,6 +22,9 @@ pub struct SessionUsage {
     /// Estimated percentage (None until calibrated).
     pub percent: Option<f64>,
     pub calibrated: bool,
+    /// Predicted Unix timestamp when the session bar hits 100%, at current velocity.
+    /// None if uncalibrated, no activity, already over 100%, or ETA is after the window reset.
+    pub eta_secs: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -54,6 +57,36 @@ pub fn weighted_since(points: &[Point], from: i64, now: i64) -> f64 {
         .sum()
 }
 
+/// Predicts when weighted consumption will reach 100% of budget, given a linear
+/// velocity over `[window_start, now]`. Returns None if uncalibrated, already
+/// over budget, if there isn't enough elapsed time/consumption for a stable
+/// velocity estimate (at least 20 min elapsed and at least 5% consumed), or if
+/// the predicted time falls after the window reset (the window will reset
+/// before 100% is reached, so there is nothing to warn about).
+fn compute_eta(
+    weighted: f64,
+    cal: &Option<Calibration>,
+    window_start: Option<i64>,
+    now: i64,
+) -> Option<i64> {
+    let budget = cal.as_ref().filter(|c| c.budget > 0.0)?.budget;
+    let remaining = budget - weighted;
+    if remaining <= 0.0 {
+        return None;
+    }
+    let start = window_start?;
+    let elapsed = now - start;
+    let pct = weighted / budget * 100.0;
+    // Require at least 20 minutes elapsed and 5% consumed so the velocity
+    // estimate is based on enough data to be meaningful.
+    if elapsed < 1200 || pct < 5.0 {
+        return None;
+    }
+    let velocity = weighted / elapsed as f64; // weighted tokens per second
+    let eta = now + (remaining / velocity) as i64;
+    (eta < start + FIVE_HOURS_SECS).then_some(eta)
+}
+
 /// Session window, anchored like Anthropic's model: the window starts at the
 /// first prompt and lasts exactly 5h; a prompt at/after `anchor + 5h` starts a
 /// fresh window. We detect the current anchor from the timestamps, then sum
@@ -83,12 +116,16 @@ pub fn session_usage(points: &[Point], cfg: &Config, now: i64) -> SessionUsage {
     };
 
     let (percent, calibrated) = percent_from(weighted, &cfg.session_calibration);
+
+    let eta_secs = compute_eta(weighted, &cfg.session_calibration, live_anchor, now);
+
     SessionUsage {
         window_start,
         reset_at,
         weighted_tokens: weighted,
         percent,
         calibrated,
+        eta_secs,
     }
 }
 
@@ -319,6 +356,75 @@ mod tests {
         let s = session_usage(&points, &cfg, now);
         assert_eq!(s.percent, None);
         assert!(!s.calibrated);
+    }
+
+    // --- compute_eta ---
+
+    #[test]
+    fn eta_none_when_uncalibrated() {
+        assert_eq!(compute_eta(500.0, &None, Some(0), 3600), None);
+    }
+
+    #[test]
+    fn eta_none_with_zero_budget() {
+        assert_eq!(compute_eta(500.0, &cal(0.0), Some(0), 3600), None);
+    }
+
+    #[test]
+    fn eta_none_at_or_over_budget() {
+        assert_eq!(compute_eta(1000.0, &cal(1000.0), Some(0), 3600), None);
+        assert_eq!(compute_eta(1500.0, &cal(1000.0), Some(0), 3600), None);
+    }
+
+    #[test]
+    fn eta_none_without_live_window() {
+        assert_eq!(compute_eta(500.0, &cal(1000.0), None, 3600), None);
+    }
+
+    #[test]
+    fn eta_none_before_20_min_elapsed() {
+        // 50% consumed but only 1199s elapsed → velocity not trusted yet.
+        assert_eq!(compute_eta(500.0, &cal(1000.0), Some(0), 1199), None);
+    }
+
+    #[test]
+    fn eta_none_below_5_pct_consumed() {
+        // 4.9% consumed after 1h → velocity not trusted yet.
+        assert_eq!(compute_eta(49.0, &cal(1000.0), Some(0), 3600), None);
+    }
+
+    #[test]
+    fn eta_linear_extrapolation() {
+        // 500/1000 consumed in 3600s → velocity 500/3600; the remaining 500
+        // take another 3600s → ETA at t=7200, well before the 5h reset.
+        assert_eq!(compute_eta(500.0, &cal(1000.0), Some(0), 3600), Some(7200));
+    }
+
+    #[test]
+    fn eta_none_when_past_window_reset() {
+        // 10% in 2000s → 100% would land at t=20_000, after the reset at
+        // t=18_000: the window resets first, no ETA.
+        assert_eq!(compute_eta(100.0, &cal(1000.0), Some(0), 2000), None);
+    }
+
+    #[test]
+    fn session_usage_exposes_eta() {
+        // Anchor at t=0 (first point), 500/1000 consumed, now=3600 → ETA 7200.
+        let now = 3600;
+        let points = vec![pt(0, 400.0), pt(1800, 100.0)];
+        let cfg = Config {
+            session_calibration: cal(1000.0),
+            ..Default::default()
+        };
+        let s = session_usage(&points, &cfg, now);
+        assert_eq!(s.eta_secs, Some(7200));
+    }
+
+    #[test]
+    fn session_usage_no_eta_when_uncalibrated() {
+        let points = vec![pt(0, 500.0)];
+        let s = session_usage(&points, &Config::default(), 3600);
+        assert_eq!(s.eta_secs, None);
     }
 
     // --- weighted_since ---
