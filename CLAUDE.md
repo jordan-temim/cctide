@@ -17,7 +17,7 @@ The panel is organized into **five tabs** (Usage, Sessions, Settings, Analytics,
 1. **Usage tab** — **Session (5h)** (15-segment fuel-gauge bar, rolling 5-hour window) and **Weekly limit** (15-segment fuel-gauge bar, anchored to user-entered reset date).
 2. **Sessions tab** — **Open sessions**: one entry per interactive session (sub-agent processes are filtered out via the session file's `kind`), showing context-window fill (e.g. 150k/200k), share of the current 5h window's consumption, idle/active status + last activity, and a VSCode/CLI badge. Per-session actions (two-step inline confirmation): **Copy resume** (`claude --resume <id>`), **Close** (SIGTERM the process), **Delete** (remove the transcript `.jsonl`; if the session has activity in the current 5h window, a reinforced warning explains the gauges will under-count until the next reset and to recalibrate after). A **Clean orphans** button removes `sessions/<pid>.json` files whose process is dead. Also hosts **Memory** (viewer of active sessions' project memory files, with per-file delete that also drops the file's line from the `MEMORY.md` index).
 3. **Settings tab** — **Calibrate** (date picker + % fields to anchor the session/weekly bars), and **System notifications** (toggle + three configurable alert levels, default 33 / 66 / 90 %).
-4. **Analytics tab** — **Weekly window** (chart of token consumption per model in the current 7-day window).
+4. **Analytics tab** — **Weekly window** (chart of token consumption per model in the current 7-day window), plus **Outcomes** (collapsible, lazy-loaded): classifies the week's quota spend by what the work became in git — see "Outcomes" below.
 5. **Extras tab** — **RTK** (tokens saved, only shown if the `rtk` binary is installed).
 
 **Header controls.** Top-right of the panel: last-refresh timestamp + a **tracking toggle** (pause/resume all data refresh and icon updates; when off, the tray icon shows a diagonal slash over the empty C's). Below the header: five **tab buttons** (Usage, Sessions, Settings, Analytics, Extras) to switch between sections.
@@ -39,6 +39,11 @@ Rendered in `icon.rs`, driven by a ticker thread in `tick.rs` (every
 update without waiting for the next tick. The shimmer animation (5 frames ×
 400 ms sweep) plays on every `do_tick` call. macOS notifications need permission
 (requested at startup) and only surface reliably from the installed build.
+
+The **tray title** (text appended to the right of the CC icon, standard macOS
+NSStatusItem behaviour) shows the 5h window's reset time in `HH:MM` local format
+when a live session is running (`session.reset_at` → `reset_time_label()` in
+`tick.rs`); cleared to empty when no session is active or tracking is disabled.
 
 **Dev builds** draw a **"D" glyph inside the left C** (black on macOS, orange on
 Windows/Linux), compiled in via `cfg!(debug_assertions)` and absent from release
@@ -124,6 +129,41 @@ plans. If the user changes plans, they recalibrate once.
   use 200k as `context_window`. Verified 2026-05-31 via `/context`
   in Claude Code showing `148.5k / 200.0k` for a claude-sonnet-4-6 session.
 
+## Outcomes (Analytics tab)
+
+Classifies the weekly window's quota spend by the fate of each session's work
+in git (no other tool does this in quota terms; codeburn's `yield` does it in $).
+Backend in [`outcome.rs`](src-tauri/src/outcome.rs), session data from
+`scan.rs::session_edit_spans` (each transcript's `cwd` + its Edit/Write tool
+calls with timestamps — the project folder name can't be decoded back to a
+path, `encode_cwd` is lossy, so the `cwd` field in the transcript lines is the
+only reliable source).
+
+**Per-edit model.** A commit carries every uncommitted change to the files it
+touches, so for each Edit/Write the **first commit touching that file
+afterwards** is the one that shipped it. Commits slice time per file: several
+sessions editing the same file each resolve unambiguously, and two sessions
+sharing one commit are both legitimately credited. A session is classified by
+the majority fate of its edits: **shipped** (commits reachable from main, not
+reverted), **pending** (commits not yet on main), **reverted** ("This reverts
+commit <sha>" matched by SHA, never by keyword), **abandoned** (no later commit
+touches those files), **non_repo** (session outside any git repo). Sessions
+with a repo but no edits fall back to a coarse temporal rule (commits during
+the session +1h). The displayed % is each category's share of the window's
+weighted quota.
+
+Git usage is **strictly read-only** (`rev-parse`, `symbolic-ref`, `log` — an
+invariant of `outcome.rs`), batched **once per repo** (two `log` passes: all
+branches with `--name-only`, and main-only SHAs); the main branch is whatever
+`origin/HEAD` says (falls back to local `main`, then `master`). Computation is
+**lazy**: `get_outcomes` runs only when the panel section is opened, cached
+300 s in `AppState.outcome_cache`, never from `do_tick`.
+
+Known v1 limits: file-level matching, not line-level (hand-rewriting a
+session's work before committing still credits it); squash merges leave
+sessions pending/abandoned (branch SHAs never reach main); renames not
+followed.
+
 ## Deriving the quota weights
 
 The `quota` weights in `models.json` are **empirical**, not guessed: they were fit
@@ -142,12 +182,15 @@ The method:
 
 Preliminary observations (provisional, limited data — **not settled facts**): a
 plain price-as-weight model fits poorly; output appears to carry most of the
-weight; per-model differences look small; cache reads seem to matter little; and
-the fit looks close to linear through the origin (which is why a single calibration
-point currently suffices). The largest uncertainty is the `cache_write_1h`
-coefficient (output↔cache colinearity), which should tighten with more "divergent"
-points (big-cache / low-output sessions, e.g. resuming a long conversation). Re-run
-the collection as more data accrues, or if the quota mechanics seem to shift.
+weight; opus and sonnet look interchangeable but fable measures ~3.3× sonnet
+(close to its output price ratio); `cache_write_1h` tracks ~0.11× the model's own
+output weight (cross-validated on windows with very different output/cache mixes);
+cache reads seem to matter little; and the fit looks close to linear through the
+origin (which is why a single calibration point currently suffices). A plan change
+only rescales the budget (Max 5× measured at ~5.3× Pro), which calibration absorbs.
+The remaining soft spots are the resume regime (big cache rewrite, low output) and
+`cache_write_5m` (rarely exercised). Re-run the collection as more data accrues, or
+if the quota mechanics seem to shift.
 
 ## Project layout (repo root)
 
@@ -159,7 +202,7 @@ src/                  Frontend (Vite + vanilla TS)
   tab-usage.ts        Usage tab: session/weekly bars
   tab-sessions.ts     Sessions tab: open sessions + actions + memory viewer
   tab-settings.ts     Settings tab: calibration + notification levels
-  tab-analytics.ts    Analytics tab: weekly window chart
+  tab-analytics.ts    Analytics tab: weekly window charts + outcomes
   tab-extras.ts       Extras tab: RTK integration
   types.ts            Shared TypeScript types (PanelData, Config, etc.)
   update.ts           Update banner + install/restart logic
@@ -173,11 +216,12 @@ src-tauri/
     main.rs           binary entry point
     commands.rs       Tauri command handlers (invoke → Rust)
     state.rs          AppState struct + shared mutable state
-    tick.rs           background ticker thread (refresh loop + notifications)
+    tick.rs           background ticker thread (refresh loop, tray title, notifications)
     update_svc.rs     update check + install + restart
     scan.rs           JSONL discovery + parsing + mtime cache
     usage.rs          5h window + weekly calibration math
     context.rs        per-session context window
+    outcome.rs        edit-fate classification via read-only git (Outcomes)
     memory.rs         memory file reader
     rtk.rs            `rtk gain --format json` integration (optional)
     notify.rs         threshold-crossing native notifications (de-duped)
@@ -208,6 +252,15 @@ Both run in CI (`lint.yml`).
 
 Builds are **unsigned** (no Apple/Windows code-signing certificate) — see
 `README.md` for the first-launch steps users must take.
+
+> **Dev tray icon invisible on macOS?** macOS gates menu bar icons per app:
+> System Settings → Control Center → **Allow in the Menu Bar**. The
+> bare dev binary (`target/debug/cctide`, no `.app` bundle, generic icon) gets
+> its **own entry** there, separate from the installed app — if its toggle is
+> off, the tray item is silently hidden while the app runs fine and the logs
+> still say "tray icon created". Check that panel before suspecting the code.
+> Startup milestones and a panic hook print to stderr (the `tauri dev`
+> terminal) since v0.6.x — release builds have no console.
 
 ## Releases & auto-update
 

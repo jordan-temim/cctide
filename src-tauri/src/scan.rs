@@ -30,6 +30,10 @@ use crate::models::Models;
 pub struct Point {
     pub ts: i64, // Unix seconds
     pub weighted: f64,
+    pub cost_usd: f64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_write_tokens: u64, // cache_5m + cache_1h
     pub model: String,
     /// Dedup key: fnv1a(message.id + requestId). Unique per API response.
     pub key: u64,
@@ -42,6 +46,24 @@ pub struct LastCtx {
     pub context_tokens: u64,
 }
 
+/// One Edit/Write/NotebookEdit tool call recorded in a transcript.
+#[derive(Debug, Clone)]
+pub struct EditRec {
+    pub path: String,
+    pub ts: i64,
+}
+
+/// A session's activity within a time window, for outcome classification:
+/// where it ran, when, how much quota it consumed, and which files it edited.
+#[derive(Debug, Clone)]
+pub struct SessionSpan {
+    pub cwd: Option<String>,
+    pub first_ts: i64,
+    pub last_ts: i64,
+    pub weighted: f64,
+    pub edits: Vec<EditRec>,
+}
+
 #[derive(Debug, Clone, Default)]
 struct CachedFile {
     mtime: i64,
@@ -51,6 +73,10 @@ struct CachedFile {
     last_ctx: Option<LastCtx>,
     /// First real user prompt — used as a human-readable session title.
     first_prompt: Option<String>,
+    /// Working directory of the session (from the transcript's `cwd` field).
+    cwd: Option<String>,
+    /// Edit/Write tool calls, deduplicated alongside their parent records.
+    edits: Vec<EditRec>,
 }
 
 /// FNV-1a hash of a string → u64 (for the dedup key).
@@ -135,22 +161,34 @@ fn first_user_prompt(text: &str) -> Option<String> {
     None
 }
 
-/// (Re)reads a JSONL file and returns its points (deduplicated within the file),
-/// the last known context state, and the first user prompt (session title).
-fn parse_file(path: &Path, pricing: &Models) -> (Vec<Point>, Option<LastCtx>, Option<String>) {
-    let mut points: Vec<Point> = Vec::new();
-    let mut last_ctx: Option<LastCtx> = None;
+/// (Re)reads a JSONL file into a `CachedFile` (mtime/size left for the caller):
+/// points deduplicated within the file, last context state, first user prompt,
+/// session cwd and Edit/Write tool calls.
+fn parse_file(path: &Path, pricing: &Models) -> CachedFile {
+    let mut parsed = CachedFile::default();
     let mut seen_keys: HashSet<u64> = HashSet::new();
 
     let Ok(text) = std::fs::read_to_string(path) else {
-        return (points, last_ctx, None);
+        return parsed;
     };
-    let first_prompt = first_user_prompt(&text);
+    parsed.first_prompt = first_user_prompt(&text);
     let path_str = path.to_string_lossy();
 
     for (line_no, line) in text.lines().enumerate() {
         let line = line.trim();
-        if line.is_empty() || !line.contains("\"usage\"") {
+        if line.is_empty() {
+            continue;
+        }
+        // The session cwd lives on most records, usage-bearing or not; grab it
+        // from the first one that carries it, then stop paying the extra parse.
+        if parsed.cwd.is_none() && line.contains("\"cwd\"") {
+            if let Ok(rec) = serde_json::from_str::<Value>(line) {
+                if let Some(c) = rec.get("cwd").and_then(|v| v.as_str()) {
+                    parsed.cwd = Some(c.to_string());
+                }
+            }
+        }
+        if !line.contains("\"usage\"") {
             continue;
         }
         let Ok(rec) = serde_json::from_str::<Value>(line) else {
@@ -209,7 +247,7 @@ fn parse_file(path: &Path, pricing: &Models) -> (Vec<Point>, Option<LastCtx>, Op
         // Context occupancy = all tokens present in the window (cache-read included).
         let context_tokens = input + output + cache_creation + cache_read;
 
-        last_ctx = Some(LastCtx {
+        parsed.last_ctx = Some(LastCtx {
             model: model.clone(),
             context_tokens,
         });
@@ -223,17 +261,46 @@ fn parse_file(path: &Path, pricing: &Models) -> (Vec<Point>, Option<LastCtx>, Op
             continue;
         }
 
+        // Edit/Write tool calls ride in the same assistant records as usage;
+        // collect them behind the same dedup gate.
+        if let Some(Value::Array(blocks)) = msg.get("content") {
+            for b in blocks {
+                if b.get("type").and_then(|v| v.as_str()) != Some("tool_use") {
+                    continue;
+                }
+                let name = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                if !matches!(name, "Edit" | "Write" | "NotebookEdit") {
+                    continue;
+                }
+                let file = b
+                    .get("input")
+                    .and_then(|i| i.get("file_path").or_else(|| i.get("notebook_path")))
+                    .and_then(|v| v.as_str());
+                if let Some(p) = file {
+                    parsed.edits.push(EditRec {
+                        path: p.to_string(),
+                        ts,
+                    });
+                }
+            }
+        }
+
         // Quota weighting excludes cache reads — see models.rs for rationale.
         let weighted = pricing.quota_units(&model, input, output, cache_5m, cache_1h);
-        points.push(Point {
+        let cost_usd = pricing.cost_usd(&model, input, output, cache_5m, cache_1h);
+        parsed.points.push(Point {
             ts,
             weighted,
+            cost_usd,
+            input_tokens: input,
+            output_tokens: output,
+            cache_write_tokens: cache_5m + cache_1h,
             model,
             key,
         });
     }
 
-    (points, last_ctx, first_prompt)
+    parsed
 }
 
 impl ScanCache {
@@ -275,17 +342,10 @@ impl ScanCache {
                 None => true,
             };
             if needs_parse {
-                let (points, last_ctx, first_prompt) = parse_file(path, pricing);
-                self.files.insert(
-                    pb,
-                    CachedFile {
-                        mtime,
-                        size,
-                        points,
-                        last_ctx,
-                        first_prompt,
-                    },
-                );
+                let mut parsed = parse_file(path, pricing);
+                parsed.mtime = mtime;
+                parsed.size = size;
+                self.files.insert(pb, parsed);
                 dirty = true;
             }
         }
@@ -387,6 +447,36 @@ impl ScanCache {
         );
     }
 
+    /// One span per transcript with activity in `[from, now]`: session cwd,
+    /// activity bounds, weighted consumption and file edits, all clamped to the
+    /// window. Same within-file-dedup approximation as `weighted_for_file`.
+    pub fn session_edit_spans(&self, from: i64, now: i64) -> Vec<SessionSpan> {
+        let mut spans: Vec<SessionSpan> = Vec::new();
+        for file in self.files.values() {
+            let in_window: Vec<&Point> = file
+                .points
+                .iter()
+                .filter(|p| p.ts >= from && p.ts <= now)
+                .collect();
+            if in_window.is_empty() {
+                continue;
+            }
+            spans.push(SessionSpan {
+                cwd: file.cwd.clone(),
+                first_ts: in_window.iter().map(|p| p.ts).min().unwrap_or(from),
+                last_ts: in_window.iter().map(|p| p.ts).max().unwrap_or(now),
+                weighted: in_window.iter().map(|p| p.weighted).sum(),
+                edits: file
+                    .edits
+                    .iter()
+                    .filter(|e| e.ts >= from && e.ts <= now)
+                    .cloned()
+                    .collect(),
+            });
+        }
+        spans
+    }
+
     /// Sum of a transcript's weighted tokens within `[from, now]`. Uses the
     /// file's own within-file-deduped points: cross-file duplicates are not
     /// subtracted, which is acceptable for a per-session breakdown (the global
@@ -418,12 +508,20 @@ mod tests {
         let p1 = Point {
             ts: 1000,
             weighted: 50.0,
+            cost_usd: 0.0,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_write_tokens: 0,
             model: "claude-sonnet-4-6".to_string(),
             key: shared_key,
         };
         let p2 = Point {
             ts: 2000,
             weighted: 50.0,
+            cost_usd: 0.0,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_write_tokens: 0,
             model: "claude-sonnet-4-6".to_string(),
             key: shared_key,
         };
@@ -435,6 +533,7 @@ mod tests {
                 points: vec![p1],
                 last_ctx: None,
                 first_prompt: None,
+                ..Default::default()
             },
         );
         cache.files.insert(
@@ -445,6 +544,7 @@ mod tests {
                 points: vec![p2],
                 last_ctx: None,
                 first_prompt: None,
+                ..Default::default()
             },
         );
         cache.rebuild_points();
@@ -518,18 +618,27 @@ mod tests {
                     Point {
                         ts: 1000,
                         weighted: 10.0,
+                        cost_usd: 0.0,
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        cache_write_tokens: 0,
                         model: "sonnet".to_string(),
                         key: 1,
                     },
                     Point {
                         ts: 1100,
                         weighted: 20.0,
+                        cost_usd: 0.0,
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        cache_write_tokens: 0,
                         model: "sonnet".to_string(),
                         key: 2,
                     },
                 ],
                 last_ctx: None,
                 first_prompt: None,
+                ..Default::default()
             },
         );
 
@@ -544,18 +653,27 @@ mod tests {
                     Point {
                         ts: 2000,
                         weighted: 99.0,
+                        cost_usd: 0.0,
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        cache_write_tokens: 0,
                         model: "sonnet".to_string(),
                         key: 2,
                     },
                     Point {
                         ts: 2100,
                         weighted: 30.0,
+                        cost_usd: 0.0,
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        cache_write_tokens: 0,
                         model: "sonnet".to_string(),
                         key: 3,
                     },
                 ],
                 last_ctx: None,
                 first_prompt: None,
+                ..Default::default()
             },
         );
 
@@ -592,6 +710,7 @@ mod tests {
                         context_tokens: 50_000,
                     }),
                     first_prompt: None,
+                    ..Default::default()
                 },
             );
         }
@@ -624,6 +743,7 @@ mod tests {
                 points: vec![],
                 last_ctx: None,
                 first_prompt: None,
+                ..Default::default()
             },
         );
         cache.files.insert(
@@ -634,6 +754,7 @@ mod tests {
                 points: vec![],
                 last_ctx: None,
                 first_prompt: None,
+                ..Default::default()
             },
         );
 
@@ -659,6 +780,7 @@ mod tests {
                 points: vec![],
                 last_ctx: None,
                 first_prompt: None,
+                ..Default::default()
             },
         );
 
@@ -686,6 +808,7 @@ mod tests {
                 ],
                 last_ctx: None,
                 first_prompt: None,
+                ..Default::default()
             },
         );
         // Window [1_000, 5_000] keeps the first two points only.
@@ -706,6 +829,10 @@ mod tests {
         Point {
             ts,
             weighted,
+            cost_usd: 0.0,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_write_tokens: 0,
             model: "claude-sonnet-4-6".to_string(),
             key: ts as u64,
         }
@@ -758,5 +885,141 @@ mod tests {
     fn first_user_prompt_none_without_prompt() {
         let text = r#"{"type":"assistant","message":{"usage":{}}}"#;
         assert_eq!(first_user_prompt(text), None);
+    }
+
+    #[test]
+    fn first_user_prompt_takes_first_line_of_multiline_content() {
+        // JSON \n escape → actual newline; first_user_prompt must take first line only.
+        let text =
+            "{\"type\":\"user\",\"message\":{\"content\":\"line one\\nline two\\nline three\"}}";
+        let t = first_user_prompt(text).unwrap();
+        assert_eq!(t, "line one");
+    }
+
+    // --- parse_file: cwd + edit extraction ---
+
+    #[test]
+    fn parse_file_extracts_cwd_and_edits() {
+        let text = concat!(
+            r#"{"type":"user","cwd":"/home/u/proj","message":{"content":"do it"}}"#,
+            "\n",
+            r#"{"type":"assistant","timestamp":"2026-06-01T10:00:00Z","requestId":"r1","message":{"id":"m1","model":"claude-sonnet-4-6","usage":{"input_tokens":1,"output_tokens":1},"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/home/u/proj/src/a.rs"}},{"type":"tool_use","name":"Read","input":{"file_path":"/home/u/proj/src/ignored.rs"}}]}}"#,
+            "\n",
+            r#"{"type":"assistant","timestamp":"2026-06-01T11:00:00Z","requestId":"r2","message":{"id":"m2","model":"claude-sonnet-4-6","usage":{"input_tokens":1,"output_tokens":1},"content":[{"type":"tool_use","name":"Write","input":{"file_path":"/home/u/proj/b.md"}}]}}"#,
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("edits.jsonl");
+        std::fs::write(&path, text).unwrap();
+
+        let parsed = parse_file(&path, &Models::default());
+
+        assert_eq!(parsed.cwd.as_deref(), Some("/home/u/proj"));
+        // Read tool calls are not edits.
+        assert_eq!(parsed.edits.len(), 2);
+        assert_eq!(parsed.edits[0].path, "/home/u/proj/src/a.rs");
+        assert_eq!(parsed.edits[1].path, "/home/u/proj/b.md");
+        assert!(parsed.edits[0].ts < parsed.edits[1].ts);
+        assert_eq!(parsed.points.len(), 2);
+    }
+
+    // --- parse_file: cache_creation format variants ---
+
+    #[test]
+    fn parse_file_cache_creation_split_5m_1h() {
+        // cache_creation object → 5m and 1h split used separately for quota weighting.
+        let text = concat!(
+            "{\"type\":\"user\",\"cwd\":\"/proj\",\"message\":{\"content\":\"go\"}}\n",
+            "{\"type\":\"assistant\",\"timestamp\":\"2026-06-01T10:00:00Z\",",
+            "\"requestId\":\"r1\",\"message\":{\"id\":\"m1\",\"model\":\"claude-sonnet-4-6\",",
+            "\"usage\":{\"input_tokens\":0,\"output_tokens\":0,",
+            "\"cache_creation\":{\"ephemeral_5m_input_tokens\":500,\"ephemeral_1h_input_tokens\":1000}}}}",
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("split.jsonl");
+        std::fs::write(&path, text).unwrap();
+
+        let parsed = parse_file(&path, &Models::default());
+
+        assert_eq!(parsed.points.len(), 1);
+        assert_eq!(
+            parsed.points[0].cache_write_tokens, 1500,
+            "cache_write_tokens = 5m + 1h"
+        );
+        // sonnet quota: output=1.0, cw5m=0, cw1h=0.11 → 1000 * 0.11 = 110
+        let expected = 1000.0 * 0.11;
+        assert!(
+            (parsed.points[0].weighted - expected).abs() < 1e-6,
+            "got {}",
+            parsed.points[0].weighted
+        );
+    }
+
+    #[test]
+    fn parse_file_cache_creation_flat_fallback() {
+        // No cache_creation split → lump total treated as 5m (sonnet cw5m quota = 0).
+        let text = concat!(
+            "{\"type\":\"user\",\"cwd\":\"/proj\",\"message\":{\"content\":\"go\"}}\n",
+            "{\"type\":\"assistant\",\"timestamp\":\"2026-06-01T10:00:00Z\",",
+            "\"requestId\":\"r2\",\"message\":{\"id\":\"m2\",\"model\":\"claude-sonnet-4-6\",",
+            "\"usage\":{\"input_tokens\":0,\"output_tokens\":0,",
+            "\"cache_creation_input_tokens\":1000}}}",
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("flat.jsonl");
+        std::fs::write(&path, text).unwrap();
+
+        let parsed = parse_file(&path, &Models::default());
+
+        assert_eq!(parsed.points.len(), 1);
+        // flat → (5m=1000, 1h=0) → cache_write_tokens=1000
+        assert_eq!(parsed.points[0].cache_write_tokens, 1000);
+        // sonnet cw5m quota weight = 0; cw1h = 0 → weighted = 0
+        assert!(
+            parsed.points[0].weighted.abs() < 1e-6,
+            "flat fallback has no quota contribution for sonnet"
+        );
+    }
+
+    // --- session_edit_spans ---
+
+    #[test]
+    fn session_edit_spans_windows_points_and_edits() {
+        let mut cache = ScanCache::default();
+        cache.files.insert(
+            PathBuf::from("/p/s1.jsonl"),
+            CachedFile {
+                points: vec![pt_for(1_000, 10.0), pt_for(3_000, 20.0), pt_for(9_000, 5.0)],
+                cwd: Some("/home/u/proj".to_string()),
+                edits: vec![
+                    EditRec {
+                        path: "a.rs".to_string(),
+                        ts: 1_500,
+                    },
+                    EditRec {
+                        path: "b.rs".to_string(),
+                        ts: 8_000,
+                    },
+                ],
+                ..Default::default()
+            },
+        );
+        // No activity in window → no span.
+        cache.files.insert(
+            PathBuf::from("/p/s2.jsonl"),
+            CachedFile {
+                points: vec![pt_for(20_000, 99.0)],
+                ..Default::default()
+            },
+        );
+
+        let spans = cache.session_edit_spans(500, 5_000);
+        assert_eq!(spans.len(), 1);
+        let s = &spans[0];
+        assert_eq!(s.cwd.as_deref(), Some("/home/u/proj"));
+        assert_eq!((s.first_ts, s.last_ts), (1_000, 3_000));
+        assert!((s.weighted - 30.0).abs() < 1e-9);
+        // Edits outside the window are dropped too.
+        assert_eq!(s.edits.len(), 1);
+        assert_eq!(s.edits[0].path, "a.rs");
     }
 }

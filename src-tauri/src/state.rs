@@ -2,7 +2,7 @@
 
 use std::sync::Mutex;
 
-use crate::{config::Config, models, notify::NotifyState, rtk, scan::ScanCache};
+use crate::{config::Config, models, notify::NotifyState, outcome, rtk, scan::ScanCache};
 
 /// An available update surfaced to the panel banner.
 #[derive(Clone, serde::Serialize)]
@@ -25,6 +25,9 @@ pub struct AppState {
     pub available_update: Mutex<Option<UpdateInfo>>,
     /// RTK savings cached by the refresh loop.
     pub rtk_cache: Mutex<Option<rtk::RtkSavings>>,
+    /// Outcome report cached on demand: (computed_at, report). Git work is
+    /// only done when the panel asks and the cache is stale.
+    pub outcome_cache: Mutex<Option<(i64, outcome::OutcomeReport)>>,
 }
 
 pub fn now_ts() -> i64 {

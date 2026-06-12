@@ -68,6 +68,17 @@ impl QuotaWeights {
             ..QuotaWeights::default()
         }
     }
+
+    /// Fable-class: output counts ~3.3× the opus/sonnet reference (measured on
+    /// Max 5×, matches the fable/sonnet output price ratio). Cache keeps the
+    /// cross-family invariant cache_write_1h ≈ 0.11 × output.
+    fn fable() -> Self {
+        QuotaWeights {
+            output: 3.3,
+            cache_write_1h: 0.36,
+            ..QuotaWeights::default()
+        }
+    }
 }
 
 /// All data for one model variant.
@@ -129,8 +140,14 @@ impl Default for Models {
         };
         let std = QuotaWeights::default;
         let mut models = BTreeMap::new();
-        models.insert("fable-5".into(), entry(10.0, 50.0, 12.5, 20.0, std()));
-        models.insert("fable".into(), entry(10.0, 50.0, 12.5, 20.0, std()));
+        models.insert(
+            "fable-5".into(),
+            entry(10.0, 50.0, 12.5, 20.0, QuotaWeights::fable()),
+        );
+        models.insert(
+            "fable".into(),
+            entry(10.0, 50.0, 12.5, 20.0, QuotaWeights::fable()),
+        );
         models.insert("opus-4-8".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
         models.insert("opus-4-7".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
         models.insert("opus-4-6".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
@@ -189,6 +206,23 @@ impl Models {
             + output as f64 * q.output
             + cache_write_5m as f64 * q.cache_write_5m
             + cache_write_1h as f64 * q.cache_write_1h
+    }
+
+    /// Dollar cost for one assistant turn (prices in $/MTok from models.json).
+    pub fn cost_usd(
+        &self,
+        model: &str,
+        input: u64,
+        output: u64,
+        cache_5m: u64,
+        cache_1h: u64,
+    ) -> f64 {
+        let e = self.entry_for(model);
+        (input as f64 * e.input
+            + output as f64 * e.output
+            + cache_5m as f64 * e.cache_write_5m
+            + cache_1h as f64 * e.cache_write_1h)
+            / 1_000_000.0
     }
 
     /// Context-window limit for a model, in tokens. Checks user overrides first,
@@ -417,14 +451,47 @@ mod tests {
     }
 
     #[test]
-    fn fable_matches_and_counts_like_top_tier() {
+    fn fable_weighs_3_3x_sonnet_on_quota() {
         let models = m();
         let e = models.entry_for("claude-fable-5");
         assert!((e.input - 10.0).abs() < 1e-9, "expected fable pricing");
-        // Quota: same weights as opus/sonnet (output=1.0) until measured otherwise.
-        let fable = models.quota_units("claude-fable-5", 0, 1000, 0, 100);
-        let sonnet = models.quota_units("claude-sonnet-4-6", 0, 1000, 0, 100);
-        assert!((fable - sonnet).abs() < 1e-9);
+        // Measured on Max 5×: fable output ≈ 3.3× sonnet; cache keeps the
+        // 0.11×output invariant (0.36 for fable).
+        let fable_out = models.quota_units("claude-fable-5", 0, 1000, 0, 0);
+        let sonnet_out = models.quota_units("claude-sonnet-4-6", 0, 1000, 0, 0);
+        assert!((fable_out / sonnet_out - 3.3).abs() < 1e-9);
+        let fable_cc = models.quota_units("claude-fable-5", 0, 0, 0, 1000);
+        assert!((fable_cc - 360.0).abs() < 1e-6);
+    }
+
+    // --- cost_usd ---
+
+    #[test]
+    fn cost_usd_sonnet_input_and_output() {
+        // sonnet: input=$3/MTok, output=$15/MTok
+        let m = Models::default();
+        let input_cost = m.cost_usd("claude-sonnet-4-6", 1_000_000, 0, 0, 0);
+        assert!((input_cost - 3.0).abs() < 1e-9, "1M input tokens = $3");
+        let output_cost = m.cost_usd("claude-sonnet-4-6", 0, 1_000_000, 0, 0);
+        assert!((output_cost - 15.0).abs() < 1e-9, "1M output tokens = $15");
+    }
+
+    #[test]
+    fn cost_usd_unknown_model_uses_default_pricing() {
+        let m = Models::default();
+        // default ModelEntry: output=$15/MTok
+        let cost = m.cost_usd("some-unknown-model", 0, 1_000_000, 0, 0);
+        assert!((cost - 15.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn cost_usd_cache_write_prices_applied() {
+        // sonnet: cw5m=$3.75/MTok, cw1h=$6/MTok
+        let m = Models::default();
+        let c5m = m.cost_usd("claude-sonnet-4-6", 0, 0, 1_000_000, 0);
+        assert!((c5m - 3.75).abs() < 1e-9, "1M 5m-cache write = $3.75");
+        let c1h = m.cost_usd("claude-sonnet-4-6", 0, 0, 0, 1_000_000);
+        assert!((c1h - 6.0).abs() < 1e-9, "1M 1h-cache write = $6");
     }
 
     // --- embedded models.json carries quota weights ---

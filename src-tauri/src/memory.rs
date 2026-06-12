@@ -171,4 +171,64 @@ mod tests {
 
         assert_eq!(sorted_names, vec!["apple.md", "banana.md", "zebra.md"]);
     }
+
+    // --- read_memory integration ---
+
+    #[test]
+    fn read_memory_empty_when_no_memory_dir() {
+        // project_dir_for_cwd finds the project via the cache key, but the
+        // memory/ subdir doesn't exist on disk → read_memory returns empty.
+        let mut cache = crate::scan::ScanCache::default();
+        let cwd = "/nonexistent-cctide-proj-xyzzy";
+        let encoded = crate::scan::encode_cwd(cwd);
+        cache.insert_test_transcript(
+            PathBuf::from(format!("/tmp/fakeroots-cctide/{encoded}/session.jsonl")),
+            100,
+        );
+        let files = read_memory(&cache, &[cwd.to_string()]);
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn read_memory_reads_md_files_and_filters_non_md() {
+        use std::fs;
+        let cwd = "/cctide-memtest-readmd-proj";
+        let encoded = crate::scan::encode_cwd(cwd);
+        let base = tempfile::tempdir().unwrap();
+        let project_dir = base.path().join(&encoded);
+        let memory_dir = project_dir.join("memory");
+        fs::create_dir_all(&memory_dir).unwrap();
+        fs::write(memory_dir.join("MEMORY.md"), "# Index").unwrap();
+        fs::write(memory_dir.join("notes.md"), "# Notes").unwrap();
+        fs::write(memory_dir.join("ignored.txt"), "not md").unwrap();
+
+        let mut cache = crate::scan::ScanCache::default();
+        cache.insert_test_transcript(project_dir.join("session.jsonl"), 100);
+
+        let files = read_memory(&cache, &[cwd.to_string()]);
+        // Only .md files returned; MEMORY.md first, then alphabetical.
+        assert_eq!(files.len(), 2, "only .md files should be returned");
+        assert_eq!(files[0].name, "MEMORY.md", "MEMORY.md must come first");
+        assert_eq!(files[1].name, "notes.md");
+        assert_eq!(files[0].project, encoded);
+    }
+
+    #[test]
+    fn read_memory_deduplicates_same_project_cwd() {
+        use std::fs;
+        let cwd = "/cctide-memtest-dedup-proj";
+        let encoded = crate::scan::encode_cwd(cwd);
+        let base = tempfile::tempdir().unwrap();
+        let project_dir = base.path().join(&encoded);
+        let memory_dir = project_dir.join("memory");
+        fs::create_dir_all(&memory_dir).unwrap();
+        fs::write(memory_dir.join("a.md"), "# A").unwrap();
+
+        let mut cache = crate::scan::ScanCache::default();
+        cache.insert_test_transcript(project_dir.join("session.jsonl"), 100);
+
+        // Same cwd passed twice → BTreeSet deduplication → single project read.
+        let files = read_memory(&cache, &[cwd.to_string(), cwd.to_string()]);
+        assert_eq!(files.len(), 1);
+    }
 }

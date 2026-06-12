@@ -25,6 +25,9 @@ pub struct SessionUsage {
     /// Predicted Unix timestamp when the session bar hits 100%, at current velocity.
     /// None if uncalibrated, no activity, already over 100%, or ETA is after the window reset.
     pub eta_secs: Option<i64>,
+    /// Consumption velocity in weighted tokens per hour over the current window.
+    /// None if the window is not live or less than 20 min have elapsed.
+    pub burn_rate_per_hour: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -59,10 +62,10 @@ pub fn weighted_since(points: &[Point], from: i64, now: i64) -> f64 {
 
 /// Predicts when weighted consumption will reach 100% of budget, given a linear
 /// velocity over `[window_start, now]`. Returns None if uncalibrated, already
-/// over budget, if there isn't enough elapsed time/consumption for a stable
-/// velocity estimate (at least 20 min elapsed and at least 5% consumed), or if
-/// the predicted time falls after the window reset (the window will reset
-/// before 100% is reached, so there is nothing to warn about).
+/// over budget, or if there isn't enough elapsed time/consumption for a stable
+/// velocity estimate (at least 20 min elapsed and at least 5% consumed). The
+/// predicted timestamp may fall after the window reset; callers can use that to
+/// show the user they are on track to hit the limit before the session expires.
 fn compute_eta(
     weighted: f64,
     cal: &Option<Calibration>,
@@ -84,7 +87,7 @@ fn compute_eta(
     }
     let velocity = weighted / elapsed as f64; // weighted tokens per second
     let eta = now + (remaining / velocity) as i64;
-    (eta < start + FIVE_HOURS_SECS).then_some(eta)
+    Some(eta)
 }
 
 /// Session window, anchored like Anthropic's model: the window starts at the
@@ -119,6 +122,15 @@ pub fn session_usage(points: &[Point], cfg: &Config, now: i64) -> SessionUsage {
 
     let eta_secs = compute_eta(weighted, &cfg.session_calibration, live_anchor, now);
 
+    let burn_rate_per_hour = live_anchor.and_then(|a| {
+        let elapsed = now - a;
+        if elapsed >= 1200 {
+            Some(weighted / (elapsed as f64 / 3600.0))
+        } else {
+            None
+        }
+    });
+
     SessionUsage {
         window_start,
         reset_at,
@@ -126,6 +138,7 @@ pub fn session_usage(points: &[Point], cfg: &Config, now: i64) -> SessionUsage {
         percent,
         calibrated,
         eta_secs,
+        burn_rate_per_hour,
     }
 }
 
@@ -195,13 +208,26 @@ pub fn weekly_usage(points: &[Point], cfg: &Config, now: i64) -> WeeklyUsage {
     }
 }
 
+/// Token breakdown for one day.
+#[derive(Debug, Default, Serialize)]
+pub struct DayBreakdown {
+    pub input: f64,
+    pub output: f64,
+    pub cache_write: f64,
+}
+
 /// Returns 7 daily buckets, one per calendar day starting from `week_start`.
-/// Each entry is `(midnight_local_ts, per_model_weighted_sums)`.
+/// Each entry is `(midnight_local_ts, per_model_weighted_sums, total_cost_usd, token_breakdown)`.
 pub fn daily_buckets(
     points: &[Point],
     week_start: i64,
     now: i64,
-) -> Vec<(i64, std::collections::HashMap<String, f64>)> {
+) -> Vec<(
+    i64,
+    std::collections::HashMap<String, f64>,
+    f64,
+    DayBreakdown,
+)> {
     use chrono::{Duration, Local, TimeZone};
     use std::collections::HashMap;
 
@@ -222,14 +248,21 @@ pub fn daily_buckets(
         let day_end = day_start + 86400;
 
         let mut by_model: HashMap<String, f64> = HashMap::new();
+        let mut cost_usd = 0.0f64;
+        let mut breakdown = DayBreakdown::default();
         for p in points
             .iter()
             .filter(|p| p.ts >= day_start && p.ts < day_end && p.ts <= now)
-            .filter(|p| !p.model.is_empty() && !p.model.starts_with('<'))
         {
-            *by_model.entry(p.model.clone()).or_insert(0.0) += p.weighted;
+            cost_usd += p.cost_usd;
+            breakdown.input += p.input_tokens as f64;
+            breakdown.output += p.output_tokens as f64;
+            breakdown.cache_write += p.cache_write_tokens as f64;
+            if !p.model.is_empty() && !p.model.starts_with('<') {
+                *by_model.entry(p.model.clone()).or_insert(0.0) += p.weighted;
+            }
         }
-        buckets.push((day_start, by_model));
+        buckets.push((day_start, by_model, cost_usd, breakdown));
     }
     buckets
 }
@@ -254,6 +287,10 @@ mod tests {
         Point {
             ts,
             weighted,
+            cost_usd: 0.0,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_write_tokens: 0,
             model: "claude-sonnet-4-6".to_string(),
             key: ts as u64,
         }
@@ -401,10 +438,14 @@ mod tests {
     }
 
     #[test]
-    fn eta_none_when_past_window_reset() {
+    fn eta_shown_even_past_window_reset() {
         // 10% in 2000s → 100% would land at t=20_000, after the reset at
-        // t=18_000: the window resets first, no ETA.
-        assert_eq!(compute_eta(100.0, &cal(1000.0), Some(0), 2000), None);
+        // t=18_000: ETA is still returned so the user knows they're on track
+        // to hit the limit before that session expires.
+        assert_eq!(
+            compute_eta(100.0, &cal(1000.0), Some(0), 2000),
+            Some(20_000)
+        );
     }
 
     #[test]
@@ -600,7 +641,7 @@ mod tests {
         let points = vec![p0, p1a, p1b, p2];
         let buckets = daily_buckets(&points, week_start, now);
 
-        let total = |i: usize| -> f64 { buckets[i].1.values().sum() };
+        let total = |i: usize| -> f64 { buckets[i].1.values().sum::<f64>() };
         assert!((total(0) - 10.0).abs() < 1e-9, "day 0");
         assert!((total(1) - 50.0).abs() < 1e-9, "day 1 sum");
         assert!((total(2) - 5.0).abs() < 1e-9, "day 2");
@@ -618,18 +659,30 @@ mod tests {
             Point {
                 ts: day0_start + 43200,
                 weighted: 100.0,
+                cost_usd: 0.0,
+                input_tokens: 0,
+                output_tokens: 0,
+                cache_write_tokens: 0,
                 model: "<synthetic>".to_string(),
                 key: 1,
             },
             Point {
                 ts: day0_start + 43200,
                 weighted: 200.0,
+                cost_usd: 0.0,
+                input_tokens: 0,
+                output_tokens: 0,
+                cache_write_tokens: 0,
                 model: String::new(),
                 key: 2,
             },
             Point {
                 ts: day0_start + 43200,
                 weighted: 50.0,
+                cost_usd: 0.0,
+                input_tokens: 0,
+                output_tokens: 0,
+                cache_write_tokens: 0,
                 model: "claude-sonnet-4-6".to_string(),
                 key: 3,
             },
@@ -814,18 +867,30 @@ mod tests {
             Point {
                 ts: day0_start + 43200,
                 weighted: 100.0,
+                cost_usd: 0.0,
+                input_tokens: 0,
+                output_tokens: 0,
+                cache_write_tokens: 0,
                 model: "claude-opus-4-8".to_string(),
                 key: 1,
             },
             Point {
                 ts: day0_start + 43200,
                 weighted: 50.0,
+                cost_usd: 0.0,
+                input_tokens: 0,
+                output_tokens: 0,
+                cache_write_tokens: 0,
                 model: "claude-sonnet-4-6".to_string(),
                 key: 2,
             },
             Point {
                 ts: day0_start + 50000,
                 weighted: 30.0,
+                cost_usd: 0.0,
+                input_tokens: 0,
+                output_tokens: 0,
+                cache_write_tokens: 0,
                 model: "claude-opus-4-8".to_string(),
                 key: 3,
             },

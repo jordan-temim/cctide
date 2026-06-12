@@ -1,8 +1,14 @@
-//! Background ticker: recomputes usage, updates the tray icon, emits the
-//! "refresh" event every `refresh_secs`. Also plays the shimmer animation.
+//! Background ticker: recomputes usage, updates the tray icon and title, emits
+//! the "refresh" event every `refresh_secs`. Also plays the shimmer animation.
+//!
+//! **Tray title**: when a 5h session is live, `do_tick` sets the macOS menubar
+//! title (text to the right of the CC icon) to the session's reset time in
+//! `HH:MM` local format (`tray.set_title`). The title is cleared when no
+//! session is active or when tracking is disabled.
 
 use std::sync::atomic::Ordering;
 
+use chrono::{Local, TimeZone, Timelike};
 use tauri::Emitter;
 
 use tauri::Manager;
@@ -50,6 +56,7 @@ pub fn do_tick(
                     rendered.width,
                     rendered.height,
                 )));
+                let _ = tray.set_title(None::<&str>);
             }
             *last_disabled_sig = Some(sig);
         }
@@ -81,6 +88,11 @@ pub fn do_tick(
         .expect("notify_state poisoned")
         .check(app, &cfg, &session, &weekly);
     *state.rtk_cache.lock().expect("rtk_cache poisoned") = rtk::savings();
+
+    if let Some(tray) = app.tray_by_id("cctide-tray") {
+        let _ = tray.set_title(reset_time_label(session.reset_at).as_deref());
+    }
+
     app.emit("refresh", ()).ok();
 
     if cfg.dynamic_icon {
@@ -124,6 +136,17 @@ pub fn do_tick(
     }
 }
 
+/// Formats a 5h-window reset timestamp as `HH:MM` in the machine's local
+/// timezone, or `None` when there is no live session.
+fn reset_time_label(reset_at: Option<i64>) -> Option<String> {
+    reset_at.and_then(|ts| {
+        Local
+            .timestamp_opt(ts, 0)
+            .single()
+            .map(|dt| format!("{:02}:{:02}", dt.hour(), dt.minute()))
+    })
+}
+
 /// Spawns the background ticker thread. Reloads config from disk each cycle
 /// so external edits are picked up without restarting the app.
 pub fn start_ticker(app: tauri::AppHandle) {
@@ -149,4 +172,66 @@ pub fn start_ticker(app: tauri::AppHandle) {
             ));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- reset_time_label ---
+
+    #[test]
+    fn reset_time_label_none_when_no_session() {
+        assert_eq!(reset_time_label(None), None);
+    }
+
+    #[test]
+    fn reset_time_label_returns_some_for_valid_timestamp() {
+        // Any valid Unix timestamp must yield a label (not None).
+        assert!(reset_time_label(Some(1_700_000_000)).is_some());
+        assert!(reset_time_label(Some(0)).is_some());
+    }
+
+    #[test]
+    fn reset_time_label_format_is_hh_mm() {
+        // Output must be exactly "HH:MM" — 5 chars, colon at position 2,
+        // both parts numeric and in valid range. Checked across several timestamps
+        // to hit different hours/minutes regardless of the local timezone.
+        for ts in [0i64, 3_600, 7_261, 1_700_000_000, 1_748_000_000] {
+            let label = reset_time_label(Some(ts)).unwrap();
+            assert_eq!(label.len(), 5, "wrong length for ts={ts}: '{label}'");
+            assert_eq!(
+                &label[2..3],
+                ":",
+                "no colon at position 2 for ts={ts}: '{label}'"
+            );
+            let hour: u32 = label[..2].parse().unwrap_or(99);
+            let minute: u32 = label[3..].parse().unwrap_or(99);
+            assert!(hour <= 23, "hour out of range for ts={ts}: '{label}'");
+            assert!(minute <= 59, "minute out of range for ts={ts}: '{label}'");
+        }
+    }
+
+    #[test]
+    fn reset_time_label_zero_pads_single_digits() {
+        // The format must always emit two digits for each part.
+        // We can't know the local time for a given ts, but we can verify that
+        // whatever the output is, it never looks like "9:05" or "14:5".
+        for ts in [60i64, 61, 3_661, 7_200, 86_399] {
+            let label = reset_time_label(Some(ts)).unwrap();
+            // Both parts before and after the colon must be exactly 2 chars.
+            let parts: Vec<&str> = label.splitn(2, ':').collect();
+            assert_eq!(parts.len(), 2);
+            assert_eq!(
+                parts[0].len(),
+                2,
+                "hour not zero-padded for ts={ts}: '{label}'"
+            );
+            assert_eq!(
+                parts[1].len(),
+                2,
+                "minute not zero-padded for ts={ts}: '{label}'"
+            );
+        }
+    }
 }

@@ -7,7 +7,7 @@ import { $, updateLastUpdated } from "./utils";
 import { renderUsage } from "./tab-usage";
 import { renderSessions, setupSessions, loadMemory } from "./tab-sessions";
 import { setupCalibration, setupNotifications } from "./tab-settings";
-import { renderChart } from "./tab-analytics";
+import { renderChart, renderBreakdownChart, renderCostChart, loadOutcomes } from "./tab-analytics";
 import { renderRtk } from "./tab-extras";
 import { renderUpdateBanner, setupUpdate } from "./update";
 import type { PanelData, Config } from "./types";
@@ -19,6 +19,8 @@ async function refresh() {
   renderUsage(session, weekly, cfg);
   renderSessions(session, sessions);
   renderChart(chart);
+  renderBreakdownChart(chart);
+  renderCostChart(chart);
   renderRtk(rtk);
   updateLastUpdated();
 }
@@ -32,6 +34,12 @@ function setupTabs() {
       panels.forEach((p) => p.classList.add("hidden"));
       tab.classList.add("active");
       document.getElementById(`tab-${tab.dataset.tab}`)?.classList.remove("hidden");
+      // Outcomes is open by default; load it lazily when the tab is first shown
+      // (the section's own onOpen only fires on collapse toggle).
+      if (tab.dataset.tab === "analytics" &&
+          !$<HTMLElement>("analytics-outcomes-body").classList.contains("hidden")) {
+        void loadOutcomes();
+      }
     });
   });
 }
@@ -73,6 +81,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   setupSessions(refresh);
   setupCollapse("sessions-toggle", "sessions-body");
   setupCollapse("memory-toggle", "memory-body", loadMemory);
+  setupCollapse("analytics-models-toggle", "analytics-models-body");
+  setupCollapse("analytics-breakdown-toggle", "analytics-breakdown-body");
+  setupCollapse("analytics-cost-toggle", "analytics-cost-body");
+  setupCollapse("analytics-outcomes-toggle", "analytics-outcomes-body", () => void loadOutcomes());
   const osName = navigator.userAgent.toLowerCase().includes("mac") ? "macOS" : "Windows";
   const notifLabel = document.getElementById("notif-section-label");
   if (notifLabel) notifLabel.textContent = `${osName} notifications`;

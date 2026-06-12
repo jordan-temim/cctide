@@ -24,9 +24,11 @@ export function renderUsage(session: SessionUsage, weekly: WeeklyUsage, cfg: Con
     tierClass(weekly.percent, cfg.alert_levels),
   );
 
-  const fmtPct = (p: number | null) => p != null ? ` ≈${p.toFixed(1)}%` : "";
+  const fmtPct = (p: number | null) => p != null ? ` ≈${p.toFixed(2)}%` : "";
   $<HTMLSpanElement>("session-pct").textContent = fmtPct(session.percent);
   $<HTMLSpanElement>("weekly-pct").textContent = fmtPct(weekly.percent);
 
-  $<HTMLSpanElement>("session-eta-head").textContent = session.eta_secs ? `→ ETA ${hhmm(session.eta_secs)}` : "";
+  const etaPart = session.eta_secs ? `→ ETA ${hhmm(session.eta_secs)}` : "";
+  const burnPart = session.burn_rate_per_hour != null ? `${fmt(session.burn_rate_per_hour)}/h` : "";
+  $<HTMLSpanElement>("session-eta-head").textContent = [etaPart, burnPart].filter(Boolean).join(" · ");
 }

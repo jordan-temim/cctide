@@ -9,6 +9,7 @@ mod icon;
 mod memory;
 mod models;
 mod notify;
+mod outcome;
 mod rtk;
 mod scan;
 mod usage;
@@ -46,6 +47,12 @@ fn toggle_window(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Surface panics from background threads (ticker, update check) on stderr —
+    // visible in the `tauri dev` terminal; release builds have no console.
+    std::panic::set_hook(Box::new(|info| {
+        eprintln!("[cctide] PANIC: {info}");
+    }));
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_positioner::init())
@@ -59,9 +66,11 @@ pub fn run() {
             system: std::sync::Mutex::new(sysinfo::System::new()),
             available_update: std::sync::Mutex::new(None),
             rtk_cache: std::sync::Mutex::new(None),
+            outcome_cache: std::sync::Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_panel_data,
+            commands::get_outcomes,
             commands::get_memory,
             commands::get_config,
             commands::set_calibration,
@@ -110,6 +119,7 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+            eprintln!("[cctide] tray icon created");
 
             // Hide the popup when it loses focus.
             if let Some(win) = app.get_webview_window("main") {
@@ -141,6 +151,7 @@ pub fn run() {
 
             // Ticker service: recomputes usage + icon every refresh_secs.
             tick::start_ticker(app.handle().clone());
+            eprintln!("[cctide] setup complete, ticker started");
 
             Ok(())
         })
@@ -174,4 +185,14 @@ fn apply_macos_rounded_corners(win: &tauri::WebviewWindow) {
             layer.setMasksToBounds(true);
         }
     }
+
+    // Apply NSVisualEffectView (respects the system "Reduce Transparency" setting automatically).
+    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
+    apply_vibrancy(
+        win,
+        NSVisualEffectMaterial::UnderWindowBackground,
+        None,
+        Some(12.0),
+    )
+    .unwrap_or_else(|e| eprintln!("[cctide] vibrancy unavailable: {e}"));
 }

@@ -453,7 +453,9 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-positioner",
  "tauri-plugin-updater",
+ "tempfile",
  "walkdir",
+ "window-vibrancy",
 ]
 
 [[package]]

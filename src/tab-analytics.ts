@@ -1,5 +1,7 @@
+import { invoke } from "@tauri-apps/api/core";
+
 import { $, fmt, modelLabel } from "./utils";
-import type { DayBucket } from "./types";
+import type { DayBucket, OutcomeReport } from "./types";
 
 const MODEL_COLORS: Record<string, string> = {
   fable: "var(--fable)",
@@ -137,4 +139,295 @@ export function renderChart(buckets: DayBucket[]) {
     }
     container.appendChild(legend);
   }
+}
+
+
+export function renderBreakdownChart(buckets: DayBucket[]) {
+  const container = $<HTMLDivElement>("breakdown-chart-container");
+  container.innerHTML = "";
+
+  const hasData = buckets.some(
+    (b) => b.breakdown.input + b.breakdown.output + b.breakdown.cache_write > 0
+  );
+  if (buckets.length === 0 || !hasData) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "Set a weekly reset date to see activity";
+    container.appendChild(empty);
+    return;
+  }
+
+  const W = 356, PAD_L = 8, PAD_R = 8, PAD_TOP = 8, PAD_B = 16;
+  const CHART_W = W - PAD_L - PAD_R;
+  const CHART_H = 60;
+  const H = CHART_H + PAD_TOP + PAD_B;
+  const n = buckets.length;
+  const colW = CHART_W / n;
+  const GAP = 3;
+  const barW = colW - GAP * 2;
+
+  const maxVal = Math.max(
+    ...buckets.map((b) => b.breakdown.input + b.breakdown.output + b.breakdown.cache_write),
+    1
+  );
+  const colCx = (i: number) => PAD_L + (i + 0.5) * colW;
+
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("width", "100%");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+
+  for (let i = 0; i < buckets.length; i++) {
+    const b = buckets[i];
+    const { input, output, cache_write } = b.breakdown;
+    const total = input + output + cache_write;
+    const cx = colCx(i);
+    const x = (cx - barW / 2).toFixed(1);
+    const base = PAD_TOP + CHART_H;
+
+    // Stacked from bottom: output (accent), cache_write (ok/green), input (neutral/blue)
+    const layers: [number, string][] = [
+      [output, "var(--accent)"],
+      [cache_write, "var(--ok)"],
+      [input, "var(--neutral)"],
+    ];
+    const activeLayers = layers.filter(([v]) => v > 0);
+    let yTop = base;
+    for (let li = 0; li < activeLayers.length; li++) {
+      const [val, color] = activeLayers[li];
+      const h = (val / maxVal) * CHART_H;
+      const gap = li < activeLayers.length - 1 ? 1 : 0;
+      yTop -= h;
+      const rect = document.createElementNS(svgNS, "rect");
+      rect.setAttribute("x", x);
+      rect.setAttribute("y", yTop.toFixed(1));
+      rect.setAttribute("width", barW.toFixed(1));
+      rect.setAttribute("height", Math.max(h - gap, 1).toFixed(1));
+      rect.setAttribute("rx", "2");
+      rect.setAttribute("fill", color);
+      svg.appendChild(rect);
+    }
+
+    if (total > 0) {
+      const title = document.createElementNS(svgNS, "title");
+      title.textContent = `${b.label}: output ${fmt(output)} · cache ${fmt(cache_write)} · input ${fmt(input)}`;
+      // attach to a transparent full-height rect for hover
+      const hit = document.createElementNS(svgNS, "rect");
+      hit.setAttribute("x", x);
+      hit.setAttribute("y", (PAD_TOP + CHART_H - (total / maxVal) * CHART_H).toFixed(1));
+      hit.setAttribute("width", barW.toFixed(1));
+      hit.setAttribute("height", ((total / maxVal) * CHART_H).toFixed(1));
+      hit.setAttribute("fill", "transparent");
+      hit.appendChild(title);
+      svg.appendChild(hit);
+    }
+
+    const text = document.createElementNS(svgNS, "text");
+    text.setAttribute("x", cx.toFixed(1));
+    text.setAttribute("y", (H - 3).toFixed(1));
+    text.setAttribute("text-anchor", "middle");
+    text.setAttribute("font-size", "9");
+    text.setAttribute("fill", b.is_today ? "var(--accent)" : "var(--muted)");
+    text.setAttribute("font-weight", b.is_today ? "600" : "normal");
+    text.textContent = b.label;
+    svg.appendChild(text);
+  }
+
+  container.appendChild(svg);
+
+  // Legend
+  const legend = document.createElement("div");
+  legend.className = "chart-legend";
+  for (const [label, color] of [
+    ["Output", "var(--accent)"],
+    ["Cache write", "var(--ok)"],
+    ["Input", "var(--neutral)"],
+  ] as [string, string][]) {
+    const item = document.createElement("span");
+    item.className = "chart-legend-item";
+    const dot = document.createElement("span");
+    dot.className = "chart-legend-dot";
+    dot.style.background = color;
+    const lbl = document.createElement("span");
+    lbl.textContent = label;
+    item.appendChild(dot);
+    item.appendChild(lbl);
+    legend.appendChild(item);
+  }
+  container.appendChild(legend);
+}
+
+// --- Outcomes: fate of each session's edits, classified backend-side ---
+
+const OUTCOME_META: Record<string, { label: string; color: string; note: string; tip: string }> = {
+  shipped: {
+    label: "Shipped",
+    color: "var(--ok)",
+    note: "→ main",
+    tip: "Edits landed in commits on the main branch",
+  },
+  pending: {
+    label: "Pending",
+    color: "var(--tier-2)",
+    note: "on branches",
+    tip: "Edits committed on a branch not merged yet",
+  },
+  reverted: {
+    label: "Reverted",
+    color: "var(--tier-3)",
+    note: "undone",
+    tip: "Edits whose commits were later reverted",
+  },
+  abandoned: {
+    label: "Abandoned",
+    color: "var(--muted)",
+    note: "no commit",
+    tip: "Edits never committed",
+  },
+  non_repo: {
+    label: "Non-repo",
+    color: "var(--track)",
+    note: "chat, docs, no git",
+    tip: "Sessions outside any git repository",
+  },
+};
+
+export function renderOutcomes(report: OutcomeReport) {
+  const container = $<HTMLDivElement>("outcomes-container");
+  container.innerHTML = "";
+
+  const active = report.categories.filter((c) => c.weighted > 0);
+  if (active.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "No activity in this window";
+    container.appendChild(empty);
+    return;
+  }
+
+  const bar = document.createElement("div");
+  bar.className = "outcomes-bar";
+  for (const c of active) {
+    const meta = OUTCOME_META[c.kind];
+    if (!meta) continue;
+    const seg = document.createElement("div");
+    seg.className = "outcomes-seg";
+    seg.style.width = `${c.percent}%`;
+    seg.style.background = meta.color;
+    seg.title = `${meta.label} — ${meta.tip}`;
+    bar.appendChild(seg);
+  }
+  container.appendChild(bar);
+
+  for (const c of active) {
+    const meta = OUTCOME_META[c.kind];
+    if (!meta) continue;
+    const row = document.createElement("div");
+    row.className = "outcome-row";
+    row.title = `${meta.label} — ${meta.tip}`;
+
+    const dot = document.createElement("span");
+    dot.className = "outcome-dot";
+    dot.style.background = meta.color;
+
+    const label = document.createElement("span");
+    label.className = "outcome-label";
+    label.textContent = meta.label;
+
+    const pct = document.createElement("span");
+    pct.className = "outcome-pct";
+    pct.textContent = c.percent > 0 && c.percent < 0.5 ? "<1%" : `${Math.round(c.percent)}%`;
+
+    const note = document.createElement("span");
+    note.className = "outcome-note";
+    const n = c.session_count;
+    note.textContent =
+      c.kind === "non_repo"
+        ? `${n} session${n > 1 ? "s" : ""} · ${meta.note}`
+        : `${n} session${n > 1 ? "s" : ""} ${meta.note}`;
+
+    row.append(dot, label, pct, note);
+    container.appendChild(row);
+  }
+}
+
+/** Lazy fetch on section open; the backend caches the git work (5 min TTL). */
+export async function loadOutcomes() {
+  const container = $<HTMLDivElement>("outcomes-container");
+  if (!container.hasChildNodes()) {
+    const computing = document.createElement("div");
+    computing.className = "empty";
+    computing.textContent = "Computing…";
+    container.appendChild(computing);
+  }
+  renderOutcomes(await invoke<OutcomeReport>("get_outcomes"));
+}
+
+export function renderCostChart(buckets: DayBucket[]) {
+  const container = $<HTMLDivElement>("cost-chart-container");
+  container.innerHTML = "";
+
+  const weeklyTotal = buckets.reduce((s, b) => s + b.cost_usd, 0);
+  $<HTMLSpanElement>("weekly-cost").textContent =
+    weeklyTotal > 0 ? `$${weeklyTotal.toFixed(2)} this week` : "";
+
+  if (buckets.length === 0 || weeklyTotal === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = weeklyTotal === 0 ? "No cost data for this week" : "Set a weekly reset date to see activity";
+    container.appendChild(empty);
+    return;
+  }
+
+  const W = 356, PAD_L = 8, PAD_R = 8, PAD_TOP = 8, PAD_B = 16;
+  const CHART_W = W - PAD_L - PAD_R;
+  const CHART_H = 60;
+  const H = CHART_H + PAD_TOP + PAD_B;
+  const n = buckets.length;
+  const colW = CHART_W / n;
+  const GAP = 3;
+  const barW = colW - GAP * 2;
+
+  const maxVal = Math.max(...buckets.map((b) => b.cost_usd), 0.000001);
+  const colCx = (i: number) => PAD_L + (i + 0.5) * colW;
+
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("width", "100%");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+
+  for (let i = 0; i < buckets.length; i++) {
+    const b = buckets[i];
+    const bh = (b.cost_usd / maxVal) * CHART_H;
+    const cx = colCx(i);
+    const x = cx - barW / 2;
+    const y = PAD_TOP + CHART_H - bh;
+
+    const rect = document.createElementNS(svgNS, "rect");
+    rect.setAttribute("x", x.toFixed(1));
+    rect.setAttribute("y", y.toFixed(1));
+    rect.setAttribute("width", barW.toFixed(1));
+    rect.setAttribute("height", Math.max(bh, 1).toFixed(1));
+    rect.setAttribute("rx", "2");
+    rect.setAttribute(
+      "fill",
+      b.is_today ? "var(--accent)" : b.cost_usd > 0 ? "var(--neutral)" : "var(--track)"
+    );
+    const title = document.createElementNS(svgNS, "title");
+    title.textContent = `${b.label}: $${b.cost_usd.toFixed(2)}`;
+    rect.appendChild(title);
+    svg.appendChild(rect);
+
+    const text = document.createElementNS(svgNS, "text");
+    text.setAttribute("x", cx.toFixed(1));
+    text.setAttribute("y", (H - 3).toFixed(1));
+    text.setAttribute("text-anchor", "middle");
+    text.setAttribute("font-size", "9");
+    text.setAttribute("fill", b.is_today ? "var(--accent)" : "var(--muted)");
+    text.setAttribute("font-weight", b.is_today ? "600" : "normal");
+    text.textContent = b.label;
+    svg.appendChild(text);
+  }
+
+  container.appendChild(svg);
 }
