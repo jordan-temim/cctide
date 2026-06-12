@@ -151,7 +151,7 @@ pub fn get_outcomes(state: tauri::State<AppState>) -> outcome::OutcomeReport {
         .lock()
         .expect("cache poisoned")
         .session_edit_spans(window_start, now);
-    let report = outcome::outcome_report(&spans, window_start, window_end);
+    let report = outcome::outcome_report(&spans, window_start, window_end.min(now));
     *state.outcome_cache.lock().expect("outcome_cache poisoned") = Some((now, report.clone()));
     report
 }

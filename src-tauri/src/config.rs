@@ -337,6 +337,26 @@ mod tests {
     }
 
     #[test]
+    fn parse_config_clamps_refresh_secs_above_max_to_3600() {
+        let cfg = super::parse_config(r#"{"refresh_secs": 7200}"#);
+        assert_eq!(cfg.refresh_secs, 3600);
+    }
+
+    #[test]
+    fn parse_config_preserves_refresh_secs_at_valid_boundaries() {
+        let cfg1 = super::parse_config(r#"{"refresh_secs": 1}"#);
+        assert_eq!(
+            cfg1.refresh_secs, 1,
+            "minimum valid value must be preserved"
+        );
+        let cfg2 = super::parse_config(r#"{"refresh_secs": 3600}"#);
+        assert_eq!(
+            cfg2.refresh_secs, 3600,
+            "maximum valid value must be preserved"
+        );
+    }
+
+    #[test]
     fn parse_config_preserves_all_fields_in_roundtrip() {
         let original = Config {
             session_calibration: Some(Calibration {

@@ -63,7 +63,9 @@ pub fn weighted_since(points: &[Point], from: i64, now: i64) -> f64 {
 /// Predicts when weighted consumption will reach 100% of budget, given a linear
 /// velocity over `[window_start, now]`. Returns None if uncalibrated, already
 /// over budget, or if there isn't enough elapsed time/consumption for a stable
-/// velocity estimate (at least 20 min elapsed and at least 5% consumed).
+/// velocity estimate (at least 20 min elapsed and at least 5% consumed). The
+/// predicted timestamp may fall after the window reset; callers can use that to
+/// show the user they are on track to hit the limit before the session expires.
 fn compute_eta(
     weighted: f64,
     cal: &Option<Calibration>,

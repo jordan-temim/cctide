@@ -24,12 +24,17 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Command;
+use std::sync::mpsc;
+use std::time::Duration;
 
 use crate::scan::SessionSpan;
 
 /// Margin added before the window when reading git logs, so commits/reverts
 /// slightly older than the window are still seen.
 const LOG_MARGIN_SECS: i64 = 7 * 86_400;
+/// Hard cap on any single git subprocess — prevents a huge monorepo from
+/// blocking the Outcomes computation indefinitely.
+const GIT_TIMEOUT: Duration = Duration::from_secs(30);
 /// Temporal-fallback margin after a session's last activity.
 const FALLBACK_MARGIN_SECS: i64 = 3_600;
 
@@ -56,14 +61,21 @@ pub struct OutcomeReport {
     pub categories: Vec<OutcomeCategory>,
 }
 
-/// Runs a read-only git subcommand in `dir`; `None` on any failure.
+/// Runs a read-only git subcommand in `dir`; `None` on any failure or timeout.
 fn git(dir: &str, args: &[&str]) -> Option<String> {
-    let out = Command::new("git")
+    let child = Command::new("git")
         .arg("-C")
         .arg(dir)
         .args(args)
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
         .ok()?;
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+    let out = rx.recv_timeout(GIT_TIMEOUT).ok()?.ok()?;
     if !out.status.success() {
         return None;
     }
@@ -691,7 +703,7 @@ mod tests {
         let s = span(&repo, t + 100, t + 200, vec![edit(&repo, "a.rs", t + 150)]);
         commit_file(&repo, "a.rs", "v2", "feat work", t + 300);
         // Before the merge the session is pending…
-        let report = outcome_report(&[s.clone()], t, t + 86_400);
+        let report = outcome_report(std::slice::from_ref(&s), t, t + 86_400);
         assert_eq!(kind_of(&report, "pending"), (100.0, 1));
         // …and shipped once the branch lands on main (SHA reachability).
         git_test(&repo, t + 400, &["checkout", "-q", "main"]);

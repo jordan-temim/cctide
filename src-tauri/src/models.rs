@@ -464,6 +464,36 @@ mod tests {
         assert!((fable_cc - 360.0).abs() < 1e-6);
     }
 
+    // --- cost_usd ---
+
+    #[test]
+    fn cost_usd_sonnet_input_and_output() {
+        // sonnet: input=$3/MTok, output=$15/MTok
+        let m = Models::default();
+        let input_cost = m.cost_usd("claude-sonnet-4-6", 1_000_000, 0, 0, 0);
+        assert!((input_cost - 3.0).abs() < 1e-9, "1M input tokens = $3");
+        let output_cost = m.cost_usd("claude-sonnet-4-6", 0, 1_000_000, 0, 0);
+        assert!((output_cost - 15.0).abs() < 1e-9, "1M output tokens = $15");
+    }
+
+    #[test]
+    fn cost_usd_unknown_model_uses_default_pricing() {
+        let m = Models::default();
+        // default ModelEntry: output=$15/MTok
+        let cost = m.cost_usd("some-unknown-model", 0, 1_000_000, 0, 0);
+        assert!((cost - 15.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn cost_usd_cache_write_prices_applied() {
+        // sonnet: cw5m=$3.75/MTok, cw1h=$6/MTok
+        let m = Models::default();
+        let c5m = m.cost_usd("claude-sonnet-4-6", 0, 0, 1_000_000, 0);
+        assert!((c5m - 3.75).abs() < 1e-9, "1M 5m-cache write = $3.75");
+        let c1h = m.cost_usd("claude-sonnet-4-6", 0, 0, 0, 1_000_000);
+        assert!((c1h - 6.0).abs() < 1e-9, "1M 1h-cache write = $6");
+    }
+
     // --- embedded models.json carries quota weights ---
 
     #[test]

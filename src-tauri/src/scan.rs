@@ -887,6 +887,15 @@ mod tests {
         assert_eq!(first_user_prompt(text), None);
     }
 
+    #[test]
+    fn first_user_prompt_takes_first_line_of_multiline_content() {
+        // JSON \n escape → actual newline; first_user_prompt must take first line only.
+        let text =
+            "{\"type\":\"user\",\"message\":{\"content\":\"line one\\nline two\\nline three\"}}";
+        let t = first_user_prompt(text).unwrap();
+        assert_eq!(t, "line one");
+    }
+
     // --- parse_file: cwd + edit extraction ---
 
     #[test]
@@ -913,6 +922,68 @@ mod tests {
         assert_eq!(parsed.edits[1].path, "/home/u/proj/b.md");
         assert!(parsed.edits[0].ts < parsed.edits[1].ts);
         assert_eq!(parsed.points.len(), 2);
+    }
+
+    // --- parse_file: cache_creation format variants ---
+
+    #[test]
+    fn parse_file_cache_creation_split_5m_1h() {
+        // cache_creation object → 5m and 1h split used separately for quota weighting.
+        let text = concat!(
+            "{\"type\":\"user\",\"cwd\":\"/proj\",\"message\":{\"content\":\"go\"}}\n",
+            "{\"type\":\"assistant\",\"timestamp\":\"2026-06-01T10:00:00Z\",",
+            "\"requestId\":\"r1\",\"message\":{\"id\":\"m1\",\"model\":\"claude-sonnet-4-6\",",
+            "\"usage\":{\"input_tokens\":0,\"output_tokens\":0,",
+            "\"cache_creation\":{\"ephemeral_5m_input_tokens\":500,\"ephemeral_1h_input_tokens\":1000}}}}",
+        );
+        let dir = std::env::temp_dir().join("cctide-scan-split");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("split.jsonl");
+        std::fs::write(&path, text).unwrap();
+
+        let parsed = parse_file(&path, &Models::default());
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(parsed.points.len(), 1);
+        assert_eq!(
+            parsed.points[0].cache_write_tokens, 1500,
+            "cache_write_tokens = 5m + 1h"
+        );
+        // sonnet quota: output=1.0, cw5m=0, cw1h=0.11 → 1000 * 0.11 = 110
+        let expected = 1000.0 * 0.11;
+        assert!(
+            (parsed.points[0].weighted - expected).abs() < 1e-6,
+            "got {}",
+            parsed.points[0].weighted
+        );
+    }
+
+    #[test]
+    fn parse_file_cache_creation_flat_fallback() {
+        // No cache_creation split → lump total treated as 5m (sonnet cw5m quota = 0).
+        let text = concat!(
+            "{\"type\":\"user\",\"cwd\":\"/proj\",\"message\":{\"content\":\"go\"}}\n",
+            "{\"type\":\"assistant\",\"timestamp\":\"2026-06-01T10:00:00Z\",",
+            "\"requestId\":\"r2\",\"message\":{\"id\":\"m2\",\"model\":\"claude-sonnet-4-6\",",
+            "\"usage\":{\"input_tokens\":0,\"output_tokens\":0,",
+            "\"cache_creation_input_tokens\":1000}}}",
+        );
+        let dir = std::env::temp_dir().join("cctide-scan-flat");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("flat.jsonl");
+        std::fs::write(&path, text).unwrap();
+
+        let parsed = parse_file(&path, &Models::default());
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(parsed.points.len(), 1);
+        // flat → (5m=1000, 1h=0) → cache_write_tokens=1000
+        assert_eq!(parsed.points[0].cache_write_tokens, 1000);
+        // sonnet cw5m quota weight = 0; cw1h = 0 → weighted = 0
+        assert!(
+            parsed.points[0].weighted.abs() < 1e-6,
+            "flat fallback has no quota contribution for sonnet"
+        );
     }
 
     // --- session_edit_spans ---
