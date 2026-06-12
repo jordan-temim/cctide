@@ -34,6 +34,12 @@ function setupTabs() {
       panels.forEach((p) => p.classList.add("hidden"));
       tab.classList.add("active");
       document.getElementById(`tab-${tab.dataset.tab}`)?.classList.remove("hidden");
+      // Outcomes is open by default; load it lazily when the tab is first shown
+      // (the section's own onOpen only fires on collapse toggle).
+      if (tab.dataset.tab === "analytics" &&
+          !$<HTMLElement>("analytics-outcomes-body").classList.contains("hidden")) {
+        void loadOutcomes();
+      }
     });
   });
 }

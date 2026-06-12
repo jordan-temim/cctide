@@ -35,4 +35,5 @@ sysinfo = "0.33"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSColor", "NSWindow", "NSView"] }
 objc2-quartz-core = { version = "0.3", features = ["CALayer"] }
+window-vibrancy = "0.6"
 

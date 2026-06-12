@@ -185,4 +185,14 @@ fn apply_macos_rounded_corners(win: &tauri::WebviewWindow) {
             layer.setMasksToBounds(true);
         }
     }
+
+    // Apply NSVisualEffectView (respects the system "Reduce Transparency" setting automatically).
+    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
+    apply_vibrancy(
+        win,
+        NSVisualEffectMaterial::UnderWindowBackground,
+        None,
+        Some(12.0),
+    )
+    .unwrap_or_else(|e| eprintln!("[cctide] vibrancy unavailable: {e}"));
 }
