@@ -907,13 +907,11 @@ mod tests {
             "\n",
             r#"{"type":"assistant","timestamp":"2026-06-01T11:00:00Z","requestId":"r2","message":{"id":"m2","model":"claude-sonnet-4-6","usage":{"input_tokens":1,"output_tokens":1},"content":[{"type":"tool_use","name":"Write","input":{"file_path":"/home/u/proj/b.md"}}]}}"#,
         );
-        let dir = std::env::temp_dir().join("cctide-scan-test");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("edits.jsonl");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("edits.jsonl");
         std::fs::write(&path, text).unwrap();
 
         let parsed = parse_file(&path, &Models::default());
-        std::fs::remove_file(&path).ok();
 
         assert_eq!(parsed.cwd.as_deref(), Some("/home/u/proj"));
         // Read tool calls are not edits.
@@ -936,13 +934,11 @@ mod tests {
             "\"usage\":{\"input_tokens\":0,\"output_tokens\":0,",
             "\"cache_creation\":{\"ephemeral_5m_input_tokens\":500,\"ephemeral_1h_input_tokens\":1000}}}}",
         );
-        let dir = std::env::temp_dir().join("cctide-scan-split");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("split.jsonl");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("split.jsonl");
         std::fs::write(&path, text).unwrap();
 
         let parsed = parse_file(&path, &Models::default());
-        std::fs::remove_file(&path).ok();
 
         assert_eq!(parsed.points.len(), 1);
         assert_eq!(
@@ -968,13 +964,11 @@ mod tests {
             "\"usage\":{\"input_tokens\":0,\"output_tokens\":0,",
             "\"cache_creation_input_tokens\":1000}}}",
         );
-        let dir = std::env::temp_dir().join("cctide-scan-flat");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("flat.jsonl");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("flat.jsonl");
         std::fs::write(&path, text).unwrap();
 
         let parsed = parse_file(&path, &Models::default());
-        std::fs::remove_file(&path).ok();
 
         assert_eq!(parsed.points.len(), 1);
         // flat → (5m=1000, 1h=0) → cache_write_tokens=1000

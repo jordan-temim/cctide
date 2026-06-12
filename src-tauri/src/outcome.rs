@@ -397,12 +397,14 @@ mod tests {
     }
 
     /// Fresh repo in a unique temp dir, default branch `branch`. Returns the
-    /// canonicalized root (macOS tmp is a symlink; git reports the real path).
-    fn init_repo(name: &str, branch: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("cctide-outcome-{name}"));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let dir = dir.canonicalize().unwrap();
+    /// `TempDir` guard (keeps the directory alive) and the canonicalized root
+    /// (macOS tmp is a symlink; git reports the real path).
+    fn init_repo(name: &str, branch: &str) -> (tempfile::TempDir, PathBuf) {
+        let td = tempfile::Builder::new()
+            .prefix(&format!("cctide-outcome-{name}-"))
+            .tempdir()
+            .unwrap();
+        let dir = td.path().canonicalize().unwrap();
         let status = Command::new("git")
             .arg("-C")
             .arg(&dir)
@@ -410,7 +412,7 @@ mod tests {
             .output()
             .expect("git init");
         assert!(status.status.success());
-        dir
+        (td, dir)
     }
 
     fn commit_file(dir: &Path, file: &str, content: &str, msg: &str, ts: i64) {
@@ -455,7 +457,7 @@ mod tests {
             return;
         }
         let t = base_ts();
-        let repo = init_repo("shipped", "main");
+        let (_td, repo) = init_repo("shipped", "main");
         commit_file(&repo, "a.rs", "v1", "init", t);
         // Session edits a.rs, commit lands 7h later (evening commit for a
         // morning session): still shipped — no time margin involved.
@@ -471,7 +473,7 @@ mod tests {
             return;
         }
         let t = base_ts();
-        let repo = init_repo("pending", "main");
+        let (_td, repo) = init_repo("pending", "main");
         commit_file(&repo, "a.rs", "v1", "init", t);
         git_test(&repo, t, &["checkout", "-q", "-b", "feat"]);
         let s = span(&repo, t + 100, t + 200, vec![edit(&repo, "a.rs", t + 150)]);
@@ -486,7 +488,7 @@ mod tests {
             return;
         }
         let t = base_ts();
-        let repo = init_repo("reverted", "main");
+        let (_td, repo) = init_repo("reverted", "main");
         commit_file(&repo, "a.rs", "v1", "init", t);
         let s = span(&repo, t + 100, t + 200, vec![edit(&repo, "a.rs", t + 150)]);
         commit_file(&repo, "a.rs", "v2", "bad idea", t + 300);
@@ -501,7 +503,7 @@ mod tests {
             return;
         }
         let t = base_ts();
-        let repo = init_repo("abandoned", "main");
+        let (_td, repo) = init_repo("abandoned", "main");
         commit_file(&repo, "a.rs", "v1", "init", t);
         let s = span(&repo, t + 100, t + 200, vec![edit(&repo, "a.rs", t + 150)]);
         let report = outcome_report(&[s], t, t + 86_400);
@@ -514,7 +516,7 @@ mod tests {
             return;
         }
         let t = base_ts();
-        let repo = init_repo("two-sessions", "main");
+        let (_td, repo) = init_repo("two-sessions", "main");
         commit_file(&repo, "a.rs", "v1", "init", t);
         // Session A edits, commit lands → shipped.
         let a = span(&repo, t + 100, t + 200, vec![edit(&repo, "a.rs", t + 150)]);
@@ -532,7 +534,7 @@ mod tests {
             return;
         }
         let t = base_ts();
-        let repo = init_repo("master", "master");
+        let (_td, repo) = init_repo("master", "master");
         commit_file(&repo, "a.rs", "v1", "init", t);
         let s = span(&repo, t + 100, t + 200, vec![edit(&repo, "a.rs", t + 150)]);
         commit_file(&repo, "a.rs", "v2", "ship", t + 300);
@@ -546,9 +548,8 @@ mod tests {
             return;
         }
         let t = base_ts();
-        let plain = std::env::temp_dir().join("cctide-outcome-plain");
-        let _ = std::fs::remove_dir_all(&plain);
-        std::fs::create_dir_all(&plain).unwrap();
+        let plain_td = tempfile::tempdir().unwrap();
+        let plain = plain_td.path().to_path_buf();
         let s1 = span(&plain, t, t + 100, vec![]);
         let s2 = SessionSpan {
             cwd: Some("/definitely/not/a/dir".to_string()),
@@ -574,7 +575,7 @@ mod tests {
             return;
         }
         let t = base_ts();
-        let repo = init_repo("temporal", "main");
+        let (_td, repo) = init_repo("temporal", "main");
         commit_file(&repo, "a.rs", "v1", "init", t - 10_000);
         // No edits, but a main commit lands while the session is active.
         let s = span(&repo, t + 100, t + 500, vec![]);
@@ -589,7 +590,7 @@ mod tests {
             return;
         }
         let t = base_ts();
-        let repo = init_repo("outside", "main");
+        let (_td, repo) = init_repo("outside", "main");
         commit_file(&repo, "a.rs", "v1", "init", t);
         // Only edit is a memory file outside the repo → temporal fallback,
         // no commit during the session → abandoned.
@@ -697,7 +698,7 @@ mod tests {
             return;
         }
         let t = base_ts();
-        let repo = init_repo("merge", "main");
+        let (_td, repo) = init_repo("merge", "main");
         commit_file(&repo, "a.rs", "v1", "init", t);
         git_test(&repo, t, &["checkout", "-q", "-b", "feat"]);
         let s = span(&repo, t + 100, t + 200, vec![edit(&repo, "a.rs", t + 150)]);
@@ -724,18 +725,18 @@ mod tests {
         let t = base_ts();
         // Upstream repo whose default branch is "trunk", cloned locally:
         // the clone's origin/HEAD points at trunk, whatever it is called.
-        let upstream = init_repo("trunk-upstream", "trunk");
+        let (_upstream_td, upstream) = init_repo("trunk-upstream", "trunk");
         commit_file(&upstream, "a.rs", "v1", "init", t);
-        let clone_dir = std::env::temp_dir().join("cctide-outcome-trunk-clone");
-        let _ = std::fs::remove_dir_all(&clone_dir);
+        let clone_parent_td = tempfile::tempdir().unwrap();
+        let clone_path = clone_parent_td.path().join("clone");
         let out = Command::new("git")
             .args(["clone", "-q"])
             .arg(format!("file://{}", upstream.display()))
-            .arg(&clone_dir)
+            .arg(&clone_path)
             .output()
             .expect("git clone");
         assert!(out.status.success());
-        let clone_dir = clone_dir.canonicalize().unwrap();
+        let clone_dir = clone_path.canonicalize().unwrap();
         assert_eq!(
             main_ref(clone_dir.to_str().unwrap()).as_deref(),
             Some("trunk")
@@ -758,7 +759,7 @@ mod tests {
             return;
         }
         let t = base_ts();
-        let repo = init_repo("subdir", "main");
+        let (_td, repo) = init_repo("subdir", "main");
         std::fs::create_dir_all(repo.join("sub")).unwrap();
         commit_file(&repo, "sub/a.rs", "v1", "init", t);
         // Session ran in repo/sub; edit paths are absolute as Claude writes them.
@@ -780,7 +781,7 @@ mod tests {
             return;
         }
         let t = base_ts();
-        let repo = init_repo("short-revert", "main");
+        let (_td, repo) = init_repo("short-revert", "main");
         commit_file(&repo, "a.rs", "v1", "init", t);
         let s = span(&repo, t + 100, t + 200, vec![edit(&repo, "a.rs", t + 150)]);
         commit_file(&repo, "a.rs", "v2", "bad", t + 300);

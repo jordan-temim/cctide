@@ -194,8 +194,8 @@ mod tests {
         use std::fs;
         let cwd = "/cctide-memtest-readmd-proj";
         let encoded = crate::scan::encode_cwd(cwd);
-        let base = std::env::temp_dir().join("cctide-memtest-readmd");
-        let project_dir = base.join(&encoded);
+        let base = tempfile::tempdir().unwrap();
+        let project_dir = base.path().join(&encoded);
         let memory_dir = project_dir.join("memory");
         fs::create_dir_all(&memory_dir).unwrap();
         fs::write(memory_dir.join("MEMORY.md"), "# Index").unwrap();
@@ -211,8 +211,6 @@ mod tests {
         assert_eq!(files[0].name, "MEMORY.md", "MEMORY.md must come first");
         assert_eq!(files[1].name, "notes.md");
         assert_eq!(files[0].project, encoded);
-
-        fs::remove_dir_all(&base).ok();
     }
 
     #[test]
@@ -220,8 +218,8 @@ mod tests {
         use std::fs;
         let cwd = "/cctide-memtest-dedup-proj";
         let encoded = crate::scan::encode_cwd(cwd);
-        let base = std::env::temp_dir().join("cctide-memtest-dedup");
-        let project_dir = base.join(&encoded);
+        let base = tempfile::tempdir().unwrap();
+        let project_dir = base.path().join(&encoded);
         let memory_dir = project_dir.join("memory");
         fs::create_dir_all(&memory_dir).unwrap();
         fs::write(memory_dir.join("a.md"), "# A").unwrap();
@@ -232,7 +230,5 @@ mod tests {
         // Same cwd passed twice → BTreeSet deduplication → single project read.
         let files = read_memory(&cache, &[cwd.to_string(), cwd.to_string()]);
         assert_eq!(files.len(), 1);
-
-        fs::remove_dir_all(&base).ok();
     }
 }
