@@ -253,6 +253,15 @@ Both run in CI (`lint.yml`).
 Builds are **unsigned** (no Apple/Windows code-signing certificate) — see
 `README.md` for the first-launch steps users must take.
 
+> **Dev tray icon invisible on macOS?** macOS gates menu bar icons per app:
+> System Settings → Control Center → **Allow in the Menu Bar**. The
+> bare dev binary (`target/debug/cctide`, no `.app` bundle, generic icon) gets
+> its **own entry** there, separate from the installed app — if its toggle is
+> off, the tray item is silently hidden while the app runs fine and the logs
+> still say "tray icon created". Check that panel before suspecting the code.
+> Startup milestones and a panic hook print to stderr (the `tauri dev`
+> terminal) since v0.6.x — release builds have no console.
+
 ## Releases & auto-update
 
 ### CI pipeline (`.github/workflows/release.yml`)
