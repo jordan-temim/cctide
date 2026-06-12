@@ -7,7 +7,7 @@ import { $, updateLastUpdated } from "./utils";
 import { renderUsage } from "./tab-usage";
 import { renderSessions, setupSessions, loadMemory } from "./tab-sessions";
 import { setupCalibration, setupNotifications } from "./tab-settings";
-import { renderChart } from "./tab-analytics";
+import { renderChart, renderBreakdownChart, renderCostChart, loadOutcomes } from "./tab-analytics";
 import { renderRtk } from "./tab-extras";
 import { renderUpdateBanner, setupUpdate } from "./update";
 import type { PanelData, Config } from "./types";
@@ -19,6 +19,8 @@ async function refresh() {
   renderUsage(session, weekly, cfg);
   renderSessions(session, sessions);
   renderChart(chart);
+  renderBreakdownChart(chart);
+  renderCostChart(chart);
   renderRtk(rtk);
   updateLastUpdated();
 }
@@ -73,6 +75,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   setupSessions(refresh);
   setupCollapse("sessions-toggle", "sessions-body");
   setupCollapse("memory-toggle", "memory-body", loadMemory);
+  setupCollapse("analytics-models-toggle", "analytics-models-body");
+  setupCollapse("analytics-breakdown-toggle", "analytics-breakdown-body");
+  setupCollapse("analytics-cost-toggle", "analytics-cost-body");
+  setupCollapse("analytics-outcomes-toggle", "analytics-outcomes-body", () => void loadOutcomes());
   const osName = navigator.userAgent.toLowerCase().includes("mac") ? "macOS" : "Windows";
   const notifLabel = document.getElementById("notif-section-label");
   if (notifLabel) notifLabel.textContent = `${osName} notifications`;

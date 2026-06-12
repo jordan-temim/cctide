@@ -153,10 +153,41 @@
 
       <!-- Tab: Analytics -->
       <div id="tab-analytics" class="tab-panel hidden">
-        <!-- Weekly window chart -->
+        <!-- Weekly window chart (open by default) -->
         <section class="block">
-          <div class="block-head">Weekly window</div>
-          <div id="chart-container" class="chart-container"></div>
+          <button id="analytics-models-toggle" class="collapse-head">
+            <span>By model</span><span class="chev open">▸</span>
+          </button>
+          <div id="analytics-models-body" class="collapse-body">
+            <div id="chart-container" class="chart-container"></div>
+          </div>
+        </section>
+        <!-- Token breakdown chart (collapsed by default) -->
+        <section class="block">
+          <button id="analytics-breakdown-toggle" class="collapse-head">
+            <span>Tokens by type</span><span class="chev">▸</span>
+          </button>
+          <div id="analytics-breakdown-body" class="collapse-body hidden">
+            <div id="breakdown-chart-container" class="chart-container"></div>
+          </div>
+        </section>
+        <!-- Daily cost chart (collapsed by default) -->
+        <section class="block">
+          <button id="analytics-cost-toggle" class="collapse-head">
+            <span>API equiv. cost</span><span id="weekly-cost" class="bar-pct"></span><span class="chev">▸</span>
+          </button>
+          <div id="analytics-cost-body" class="collapse-body hidden">
+            <div id="cost-chart-container" class="chart-container"></div>
+          </div>
+        </section>
+        <!-- Outcomes: fate of each session's edits via git (collapsed by default) -->
+        <section class="block">
+          <button id="analytics-outcomes-toggle" class="collapse-head" title="Where your weekly quota went: did the work ship, stall on a branch, get reverted, or never reach a commit?">
+            <span>Outcomes</span><span class="chev">▸</span>
+          </button>
+          <div id="analytics-outcomes-body" class="collapse-body hidden">
+            <div id="outcomes-container"></div>
+          </div>
         </section>
       </div>
 
@@ -169,7 +200,7 @@
       </div>
 
       <footer class="foot">
-        <span class="foot-text">All figures are computed locally from your <code>~/.claude</code> files: <b>nothing is ever sent anywhere.</b> Percentages are estimates, so expect a small margin versus Claude Code's <b>/usage</b>.</span>
+        <span class="foot-text">All figures are computed locally from your <code>~/.claude</code> files — <b>nothing is ever sent anywhere.</b> All values are estimates; expect a small margin versus Claude Code's <b>/usage</b>. Costs shown are API-equivalent prices, not your subscription charge.</span>
         <div class="foot-brand">
           <a href="https://github.com/jordan-temim/cctide" target="_blank" rel="noopener noreferrer" class="foot-logo-link">
             <img src="/src/assets/app-icon.png" alt="cctide on GitHub" class="foot-logo" />

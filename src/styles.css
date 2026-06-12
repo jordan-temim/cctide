@@ -766,3 +766,46 @@ button.primary:hover {
   color: var(--text);
   font-weight: 600;
 }
+
+/* Outcomes (Analytics tab) */
+.outcomes-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--track);
+  margin: 4px 0 8px;
+}
+.outcomes-seg {
+  min-width: 2px;
+}
+.outcomes-seg + .outcomes-seg {
+  border-left: 1px solid var(--bg, #fff);
+}
+.outcome-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 2px 0;
+}
+.outcome-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.outcome-label {
+  width: 72px;
+  font-weight: 500;
+}
+.outcome-pct {
+  width: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.outcome-note {
+  color: var(--muted);
+  font-size: 10px;
+}

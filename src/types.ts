@@ -5,6 +5,7 @@ export interface SessionUsage {
   percent: number | null;
   calibrated: boolean;
   eta_secs: number | null;
+  burn_rate_per_hour: number | null;
 }
 
 export interface WeeklyUsage {
@@ -54,6 +55,21 @@ export interface DayBucket {
   label: string;
   by_model: { model: string; weighted: number }[];
   is_today: boolean;
+  cost_usd: number;
+  breakdown: { input: number; output: number; cache_write: number };
+}
+
+export interface OutcomeCategory {
+  kind: string;
+  weighted: number;
+  percent: number;
+  session_count: number;
+}
+
+export interface OutcomeReport {
+  window_start: number;
+  window_end: number;
+  categories: OutcomeCategory[];
 }
 
 export interface UpdateInfo {

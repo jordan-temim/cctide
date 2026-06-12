@@ -3,7 +3,7 @@
 
 use crate::state::{now_ts, refresh_cache, refresh_system, refreshed_points, AppState};
 use crate::tick::do_tick;
-use crate::{config, context, memory, usage};
+use crate::{config, context, memory, outcome, usage};
 
 // ---------------------------------------------------------------------------
 // Panel data — single command that refreshes everything once and returns all
@@ -22,6 +22,8 @@ pub(crate) struct DayBucket {
     label: String,
     by_model: Vec<ModelSeries>,
     is_today: bool,
+    cost_usd: f64,
+    breakdown: usage::DayBreakdown,
 }
 
 #[derive(serde::Serialize)]
@@ -71,7 +73,7 @@ pub fn get_panel_data(state: tauri::State<AppState>) -> PanelData {
         use chrono::{Local, TimeZone};
         usage::daily_buckets(&points, ws, now)
             .into_iter()
-            .map(|(day_ts, by_model)| {
+            .map(|(day_ts, by_model, cost_usd, breakdown)| {
                 let label = Local
                     .timestamp_opt(day_ts, 0)
                     .single()
@@ -86,6 +88,8 @@ pub fn get_panel_data(state: tauri::State<AppState>) -> PanelData {
                     label,
                     by_model: series,
                     is_today: day_ts == today_start,
+                    cost_usd,
+                    breakdown,
                 }
             })
             .collect()
@@ -109,6 +113,47 @@ pub fn get_panel_data(state: tauri::State<AppState>) -> PanelData {
         update,
         rtk,
     }
+}
+
+// Outcomes are computed lazily (on section open) and cached: classification
+// shells out to `git log` per repo, far too heavy for the refresh poll.
+const OUTCOME_TTL_SECS: i64 = 300;
+
+#[tauri::command]
+pub fn get_outcomes(state: tauri::State<AppState>) -> outcome::OutcomeReport {
+    let now = now_ts();
+    if let Some((computed_at, report)) = state
+        .outcome_cache
+        .lock()
+        .expect("outcome_cache poisoned")
+        .as_ref()
+    {
+        if now - computed_at < OUTCOME_TTL_SECS {
+            return report.clone();
+        }
+    }
+
+    let cfg = state
+        .config_cache
+        .lock()
+        .expect("config_cache poisoned")
+        .clone();
+    refresh_cache(&state);
+    // Same window as the rest of the Analytics tab; fall back to a rolling
+    // 7 days when no weekly reset date is configured.
+    let (window_start, window_end) = cfg
+        .weekly_reset_date
+        .as_deref()
+        .and_then(|d| usage::week_window_from_reset(d, now))
+        .unwrap_or((now - 7 * 86_400, now));
+    let spans = state
+        .cache
+        .lock()
+        .expect("cache poisoned")
+        .session_edit_spans(window_start, now);
+    let report = outcome::outcome_report(&spans, window_start, window_end);
+    *state.outcome_cache.lock().expect("outcome_cache poisoned") = Some((now, report.clone()));
+    report
 }
 
 // Memory is loaded lazily (on section open), not on every panel refresh.
