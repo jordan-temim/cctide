@@ -2,6 +2,7 @@ Bump the project version to the argument provided (e.g. `/version 0.3.0`).
 
 **Before bumping:** Always verify the build is clean.
 
+0. Run `git branch --show-current` — if the current branch is not `main`, stop immediately and warn: "⚠️ Version bumps must be done on main. Currently on branch `<branch>`. Checkout main first."
 1. Run `cargo test --manifest-path src-tauri/Cargo.toml` — fail if tests don't pass
 2. Run `cargo fmt --check --manifest-path src-tauri/Cargo.toml` — fail if formatting issues
 3. Run `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` — fail if clippy warnings

@@ -24,10 +24,6 @@ Track your session and weekly quota, open sessions' context windows, project mem
 All data is read directly from `~/.claude`. The only network request cctide makes
 is the update check to GitHub (see [Updates](#updates)) — no usage data is sent with it.
 
-<p align="center">
-  <img src="docs/overview.png" width="380" />
-</p>
-
 ---
 
 ## What it shows
@@ -330,13 +326,13 @@ cctide reads `~/.claude` files on disk and renders everything in-process. No usa
 
 Everything is local. Beyond reading files under `~/.claude`, cctide shells out to exactly two external binaries — both optional to the feature they back:
 
-| Source | What | Used for |
-|---|---|---|
-| `~/.claude/projects/**/*.jsonl` | Token-usage transcripts (read-only) | Session / weekly gauges, context fill, weekly charts |
-| `~/.claude/sessions/*.json` | Running-process metadata (read-only) | Open sessions list |
-| `~/.claude/projects/**/memory/*.md` | Project memory files (read, and delete on your action) | Memory viewer |
-| **`git`** CLI | **Strictly read-only** — only `rev-parse`, `symbolic-ref`, and `log`. Never checks out, writes, or fetches; runs once per repo and is cached | Outcomes (Analytics tab) |
-| **`rtk`** CLI | `rtk gain --format json` — only if the binary is on your `PATH` | RTK savings (Extras tab) |
+| Source                                | What                                                                                                                                                      | Used for                                             |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `~/.claude/projects/**/*.jsonl`     | Token-usage transcripts (read-only)                                                                                                                       | Session / weekly gauges, context fill, weekly charts |
+| `~/.claude/sessions/*.json`         | Running-process metadata (read-only)                                                                                                                      | Open sessions list                                   |
+| `~/.claude/projects/**/memory/*.md` | Project memory files (read, and delete on your action)                                                                                                    | Memory viewer                                        |
+| **`git`** CLI                 | **Strictly read-only** — only `rev-parse`, `symbolic-ref`, and `log`. Never checks out, writes, or fetches; runs once per repo and is cached | Outcomes (Analytics tab)                             |
+| **`rtk`** CLI                 | `rtk gain --format json` — only if the binary is on your `PATH`                                                                                      | RTK savings (Extras tab)                             |
 
 If you don't open the Outcomes section, `git` is never invoked; if `rtk` isn't installed, the Extras tab stays empty. No other process is ever spawned.
 
