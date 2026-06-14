@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>cctide</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <main class="panel">
+      <header class="head">
+        <span class="title">cctide</span>
+        <div class="head-right">
+          <span class="last-updated-label">Updated <span id="last-updated">—</span></span>
+          <label class="track-toggle" title="Enable / disable tracking">
+            <input type="checkbox" id="tracking-toggle" checked />
+            <span class="track-slider"></span>
+          </label>
+        </div>
+      </header>
+
+      <!-- Update banner (hidden until an update is found) -->
+      <div id="update-banner" class="update-banner hidden">
+        <span id="update-text" class="update-text"></span>
+        <a id="update-changelog" class="update-link" href="#" target="_blank" rel="noopener noreferrer">What's new</a>
+        <button id="update-install" type="button" class="update-btn">Install</button>
+      </div>
+
+      <!-- Tab bar -->
+      <div class="tab-bar">
+        <button class="tab active" data-tab="usage">Usage</button>
+        <button class="tab" data-tab="sessions">Sessions</button>
+        <button class="tab" data-tab="settings">Settings</button>
+        <button class="tab" data-tab="analytics">Analytics</button>
+        <button class="tab" data-tab="extras">Extras</button>
+      </div>
+
+      <!-- Tab: Usage -->
+      <div id="tab-usage" class="tab-panel">
+        <!-- Gauge legend -->
+        <div class="gauge-legend">
+          <span class="legend-item"><span class="legend-swatch"></span>Normal</span>
+          <span class="legend-item"><span class="legend-swatch tier-1"></span>Alert 1</span>
+          <span class="legend-item"><span class="legend-swatch tier-2"></span>Alert 2</span>
+          <span class="legend-item"><span class="legend-swatch tier-3"></span>Alert 3</span>
+        </div>
+
+        <!-- Session (5h) -->
+        <section class="block">
+          <div class="block-head">
+            <span>Session (5h)<span id="session-pct" class="bar-pct"></span></span>
+            <span id="session-eta-head" class="bar-eta-head"></span>
+          </div>
+          <div id="session-bar" class="bar bar-segmented"></div>
+          <div id="session-sub" class="sub"></div>
+        </section>
+
+        <!-- Weekly -->
+        <section class="block">
+          <div class="block-head">
+            <span>Weekly limit<span id="weekly-pct" class="bar-pct"></span></span>
+          </div>
+          <div id="weekly-bar" class="bar bar-segmented"></div>
+          <div id="weekly-sub" class="sub"></div>
+        </section>
+
+      </div>
+
+      <!-- Tab: Sessions -->
+      <div id="tab-sessions" class="tab-panel hidden">
+        <!-- Clean orphans + status legend -->
+        <div class="gauge-legend">
+          <span class="head-actions legend-left">
+            <button id="sessions-cleanup" type="button" class="act-btn accent" title="Remove leftover session files whose Claude Code process is gone">Clean orphans</button>
+            <span id="sessions-cleanup-msg" class="sub"></span>
+          </span>
+          <span class="legend-item"><span class="status-dot active"></span>Active</span>
+          <span class="legend-item"><span class="status-dot"></span>Idle</span>
+        </div>
+
+        <!-- Per-project filter (same component as Analytics) -->
+        <div id="sessions-filter-bar" class="analytics-filter-bar" style="display:none">
+          <span class="filter-label">Project</span>
+          <div class="filter-dropdown" id="sessions-filter-dropdown">
+            <button class="filter-dropdown-btn" id="sessions-filter-btn" type="button">
+              <span id="sessions-filter-value">All projects</span>
+              <span class="filter-chev">▾</span>
+            </button>
+            <div class="filter-dropdown-menu hidden" id="sessions-filter-menu"></div>
+          </div>
+        </div>
+
+        <!-- Open sessions -->
+        <section class="block">
+          <button id="sessions-toggle" class="collapse-head">
+            <span>Open sessions</span><span class="chev open">▸</span>
+          </button>
+          <div id="sessions-body" class="collapse-body">
+            <div id="sessions-list" class="sessions"></div>
+            <p class="sessions-note">Some models support context windows beyond 200k, but Claude Code targets 200k in practice, keeping sessions coherent and consumption predictable.</p>
+          </div>
+        </section>
+
+        <!-- Memory -->
+        <section class="block">
+          <button id="memory-toggle" class="collapse-head">
+            <span>Memory</span><span class="chev">▸</span>
+          </button>
+          <div id="memory-body" class="collapse-body hidden"></div>
+        </section>
+      </div>
+
+      <!-- Tab: Settings -->
+      <div id="tab-settings" class="tab-panel hidden">
+        <section class="block">
+          <div class="settings-sub-head">Calibrate <span id="calib-status" class="calib-status"></span></div>
+          <p id="calib-hint" class="hint">
+            Run <b>/usage</b> in Claude Code once and enter the percentages — a single calibration is enough.
+          </p>
+          <form id="calib-form" class="calib">
+            <div class="calib-grid">
+              <div class="calib-col">
+                <span id="calib-label-session" class="calib-title">Session (5h)</span>
+                <input type="number" id="calib-session" min="0" max="100" step="1" placeholder="e.g. 57" />
+              </div>
+              <div class="calib-col">
+                <span id="calib-label-weekly" class="calib-title">Weekly limit</span>
+                <input type="number" id="calib-weekly" min="0" max="100" step="1" placeholder="e.g. 42" />
+              </div>
+              <div class="calib-col calib-col-full">
+                <span class="calib-title">Weekly reset date &amp; time</span>
+                <input type="datetime-local" id="calib-reset" />
+              </div>
+            </div>
+            <button type="submit" class="primary">Save calibration</button>
+            <span id="calib-msg" class="sub"></span>
+          </form>
+        </section>
+
+        <section class="block">
+          <div class="settings-sub-head">Alerts</div>
+          <p class="hint">These three levels drive the tray icon, the bar colours, and the system notification (if enabled) each time session or weekly crosses a level.</p>
+          <div id="notif-body" class="notif">
+            <div class="calib-group">
+              <span class="calib-title">Alert levels (%)</span>
+              <div class="levels-row">
+                <input type="number" id="notif-level-1" min="0" max="100" step="1" />
+                <input type="number" id="notif-level-2" min="0" max="100" step="1" />
+                <input type="number" id="notif-level-3" min="0" max="100" step="1" />
+              </div>
+            </div>
+            <button type="button" id="notif-save" class="primary">Save notifications</button>
+            <span id="notif-msg" class="sub"></span>
+          </div>
+
+          <hr class="sep" style="margin: 10px 0;" />
+
+          <div class="notif-os">
+            <span id="notif-section-label">System notifications</span>
+            <label class="track-toggle" title="Enable / disable system notifications">
+              <input type="checkbox" id="notif-enabled" />
+              <span class="track-slider"></span>
+            </label>
+          </div>
+        </section>
+      </div>
+
+      <!-- Tab: Analytics -->
+      <div id="tab-analytics" class="tab-panel hidden">
+        <div id="analytics-filter-bar" class="analytics-filter-bar" style="display:none">
+          <span class="filter-label">Project</span>
+          <div class="filter-dropdown" id="project-filter-dropdown">
+            <button class="filter-dropdown-btn" id="project-filter-btn" type="button">
+              <span id="project-filter-value">All projects</span>
+              <span class="filter-chev">▾</span>
+            </button>
+            <div class="filter-dropdown-menu hidden" id="project-filter-menu"></div>
+          </div>
+        </div>
+        <!-- Outcomes: fate of each session's edits via git (collapsed by default) -->
+        <section class="block">
+          <button id="analytics-outcomes-toggle" class="collapse-head">
+            <span>Outcomes</span><span class="chev open">▸</span>
+          </button>
+          <div id="analytics-outcomes-body" class="collapse-body">
+            <p class="hint">Where your weekly quota went: did the work ship, stall on a branch, get reverted, or never reach a commit?</p>
+            <div id="outcomes-container"></div>
+          </div>
+        </section>
+        <!-- Weekly window chart (collapsed by default) -->
+        <section class="block">
+          <button id="analytics-models-toggle" class="collapse-head">
+            <span>Tokens by model</span><span class="chev">▸</span>
+          </button>
+          <div id="analytics-models-body" class="collapse-body hidden">
+            <div id="chart-container" class="chart-container"></div>
+          </div>
+        </section>
+        <!-- Token breakdown chart (collapsed by default) -->
+        <section class="block">
+          <button id="analytics-breakdown-toggle" class="collapse-head">
+            <span>Tokens by type</span><span class="chev">▸</span>
+          </button>
+          <div id="analytics-breakdown-body" class="collapse-body hidden">
+            <div id="breakdown-chart-container" class="chart-container"></div>
+          </div>
+        </section>
+        <!-- Daily cost chart (collapsed by default) -->
+        <section class="block">
+          <button id="analytics-cost-toggle" class="collapse-head">
+            <span>API equiv. cost</span><span id="weekly-cost" class="bar-pct"></span><span class="chev">▸</span>
+          </button>
+          <div id="analytics-cost-body" class="collapse-body hidden">
+            <div id="cost-chart-container" class="chart-container"></div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Tab: Extras -->
+      <div id="tab-extras" class="tab-panel hidden">
+        <section id="rtk-block" class="block">
+          <div class="block-head"><span>RTK</span><span id="rtk-savings" class="val good"></span></div>
+          <div id="rtk-content"></div>
+        </section>
+      </div>
+
+      <footer class="foot">
+        <span class="foot-text">All figures are computed locally from your <code>~/.claude</code> files: <b>nothing is ever sent anywhere.</b> All values are estimates. Expect a small margin versus Claude Code's <b>/usage</b>. Costs shown are API-equivalent prices.</span>
+        <div class="foot-brand">
+          <a href="https://github.com/jordan-temim/cctide" target="_blank" rel="noopener noreferrer" class="foot-logo-link">
+            <img src="/src/assets/app-icon.png" alt="cctide on GitHub" class="foot-logo" />
+          </a>
+          <span id="app-version" class="foot-version"></span>
+        </div>
+      </footer>
+    </main>
+  </body>
+</html>
