@@ -1,6 +1,13 @@
 # cctide
 
 <p align="center">
+  <a href="https://github.com/jordan-temim/cctide/releases/latest"><img src="https://img.shields.io/badge/⚠️_ACTION_REQUIRED-Reinstall_if_on_%3C_v0.9.1-red?style=for-the-badge" alt="Action required: reinstall" /></a>
+</p>
+
+> [!IMPORTANT]
+> **Running a build older than v0.9.1?** The update signing key was rotated, so auto-update can no longer verify new releases. **Download the latest build from [Releases](https://github.com/jordan-temim/cctide/releases/latest) and reinstall once** — afterwards auto-update works as usual.
+
+<p align="center">
   <img src="docs/app-icon-master.png" width="96" />
 </p>
 
