@@ -1036,8 +1036,8 @@ mod tests {
             parsed.points[0].cache_write_tokens, 1500,
             "cache_write_tokens = 5m + 1h"
         );
-        // sonnet quota: output=1.0, cw5m=0, cw1h=0.11 → 1000 * 0.11 = 110
-        let expected = 1000.0 * 0.11;
+        // sonnet quota: output=1.0, cw5m=0.11, cw1h=0.11 → (500 + 1000) * 0.11 = 165
+        let expected = (500.0 + 1000.0) * 0.11;
         assert!(
             (parsed.points[0].weighted - expected).abs() < 1e-6,
             "got {}",
@@ -1047,7 +1047,7 @@ mod tests {
 
     #[test]
     fn parse_file_cache_creation_flat_fallback() {
-        // No cache_creation split → lump total treated as 5m (sonnet cw5m quota = 0).
+        // No cache_creation split → lump total treated as 5m (cw5m quota = cw1h = 0.11).
         let text = concat!(
             "{\"type\":\"user\",\"cwd\":\"/proj\",\"message\":{\"content\":\"go\"}}\n",
             "{\"type\":\"assistant\",\"timestamp\":\"2026-06-01T10:00:00Z\",",
@@ -1064,10 +1064,12 @@ mod tests {
         assert_eq!(parsed.points.len(), 1);
         // flat → (5m=1000, 1h=0) → cache_write_tokens=1000
         assert_eq!(parsed.points[0].cache_write_tokens, 1000);
-        // sonnet cw5m quota weight = 0; cw1h = 0 → weighted = 0
+        // sonnet cw5m quota weight = 0.11 → flat cache now counts: 1000 * 0.11 = 110
+        let expected = 1000.0 * 0.11;
         assert!(
-            parsed.points[0].weighted.abs() < 1e-6,
-            "flat fallback has no quota contribution for sonnet"
+            (parsed.points[0].weighted - expected).abs() < 1e-6,
+            "flat fallback now contributes via cw5m, got {}",
+            parsed.points[0].weighted
         );
     }
 

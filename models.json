@@ -1,80 +1,80 @@
 {
-  "_comment": "Per-model data shipped with the app. TWO independent weight sets: (1) $/MTok PRICES (input/output/cache_write_*) kept for reference/info; (2) QUOTA weights under 'quota' — empirical, used by quota_units to estimate the 5h/weekly %. From the lab regression (2026-06, Pro + Max 5x): output dominates (opus == sonnet; haiku ~0.1x; fable ~3.3x — matches its output price ratio vs sonnet), cache_write_1h ~0.11x the model's own output weight, and input/cache_write_5m/cache_read ~0 (cache_read is never passed to quota_units anyway). Plan changes only the absolute budget (measured Max 5x = ~5.3x Pro), absorbed by calibration. Only ratios matter. context_window in tokens. Keys match a substring of the model id; longest match wins.",
+  "_comment": "Per-model data shipped with the app. TWO independent weight sets: (1) $/MTok PRICES (input/output/cache_write_*) kept for reference/info; (2) QUOTA weights under 'quota' — empirical, used by quota_units to estimate the 5h/weekly %. From the lab regression (2026-06, Pro + Max 5x): output dominates (opus == sonnet; haiku ~0.1x; fable ~3.3x — matches its output price ratio vs sonnet), both cache writes ~0.11x the model's own output weight (cache_write_5m aligned to cache_write_1h, measured 2026-06-20 from a cc5m-heavy session), and input/cache_read ~0 (cache_read is never passed to quota_units anyway). Plan changes only the absolute budget (measured Max 5x = ~5.3x Pro), absorbed by calibration. Only ratios matter. context_window in tokens. Keys match a substring of the model id; longest match wins.",
   "models": {
     "fable-5": {
       "input": 10.0, "output": 50.0, "cache_write_5m": 12.5, "cache_write_1h": 20.0,
       "context_window": 200000, "family": "fable", "deprecated": false,
-      "quota": { "input": 0.0, "output": 3.3, "cache_write_5m": 0.0, "cache_write_1h": 0.36 }
+      "quota": { "input": 0.0, "output": 3.3, "cache_write_5m": 0.36, "cache_write_1h": 0.36 }
     },
     "fable": {
       "input": 10.0, "output": 50.0, "cache_write_5m": 12.5, "cache_write_1h": 20.0,
       "context_window": 200000, "family": "fable", "deprecated": false,
-      "quota": { "input": 0.0, "output": 3.3, "cache_write_5m": 0.0, "cache_write_1h": 0.36 }
+      "quota": { "input": 0.0, "output": 3.3, "cache_write_5m": 0.36, "cache_write_1h": 0.36 }
     },
     "opus-4-8": {
       "input": 5.0, "output": 25.0, "cache_write_5m": 6.25, "cache_write_1h": 10.0,
       "context_window": 200000, "family": "opus", "deprecated": false,
-      "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.0, "cache_write_1h": 0.11 }
+      "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.11, "cache_write_1h": 0.11 }
     },
     "opus-4-7": {
       "input": 5.0, "output": 25.0, "cache_write_5m": 6.25, "cache_write_1h": 10.0,
       "context_window": 200000, "family": "opus", "deprecated": false,
-      "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.0, "cache_write_1h": 0.11 }
+      "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.11, "cache_write_1h": 0.11 }
     },
     "opus-4-6": {
       "input": 5.0, "output": 25.0, "cache_write_5m": 6.25, "cache_write_1h": 10.0,
       "context_window": 200000, "family": "opus", "deprecated": false,
-      "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.0, "cache_write_1h": 0.11 }
+      "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.11, "cache_write_1h": 0.11 }
     },
     "opus-4-5": {
       "input": 5.0, "output": 25.0, "cache_write_5m": 6.25, "cache_write_1h": 10.0,
       "context_window": 200000, "family": "opus", "deprecated": false,
-      "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.0, "cache_write_1h": 0.11 }
+      "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.11, "cache_write_1h": 0.11 }
     },
     "opus-4-1": {
       "input": 15.0, "output": 75.0, "cache_write_5m": 18.75, "cache_write_1h": 30.0,
       "context_window": 200000, "family": "opus", "deprecated": false,
-      "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.0, "cache_write_1h": 0.11 }
+      "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.11, "cache_write_1h": 0.11 }
     },
     "opus": {
       "input": 5.0, "output": 25.0, "cache_write_5m": 6.25, "cache_write_1h": 10.0,
       "context_window": 200000, "family": "opus", "deprecated": false,
-      "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.0, "cache_write_1h": 0.11 }
+      "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.11, "cache_write_1h": 0.11 }
     },
     "sonnet-4-6": {
       "input": 3.0, "output": 15.0, "cache_write_5m": 3.75, "cache_write_1h": 6.0,
       "context_window": 200000, "family": "sonnet", "deprecated": false,
-      "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.0, "cache_write_1h": 0.11 }
+      "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.11, "cache_write_1h": 0.11 }
     },
     "sonnet-4-5": {
       "input": 3.0, "output": 15.0, "cache_write_5m": 3.75, "cache_write_1h": 6.0,
       "context_window": 200000, "family": "sonnet", "deprecated": false,
-      "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.0, "cache_write_1h": 0.11 }
+      "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.11, "cache_write_1h": 0.11 }
     },
     "sonnet": {
       "input": 3.0, "output": 15.0, "cache_write_5m": 3.75, "cache_write_1h": 6.0,
       "context_window": 200000, "family": "sonnet", "deprecated": false,
-      "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.0, "cache_write_1h": 0.11 }
+      "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.11, "cache_write_1h": 0.11 }
     },
     "haiku-4-5": {
       "input": 1.0, "output": 5.0, "cache_write_5m": 1.25, "cache_write_1h": 2.0,
       "context_window": 200000, "family": "haiku", "deprecated": false,
-      "quota": { "input": 0.0, "output": 0.1, "cache_write_5m": 0.0, "cache_write_1h": 0.11 }
+      "quota": { "input": 0.0, "output": 0.1, "cache_write_5m": 0.11, "cache_write_1h": 0.11 }
     },
     "haiku": {
       "input": 1.0, "output": 5.0, "cache_write_5m": 1.25, "cache_write_1h": 2.0,
       "context_window": 200000, "family": "haiku", "deprecated": false,
-      "quota": { "input": 0.0, "output": 0.1, "cache_write_5m": 0.0, "cache_write_1h": 0.11 }
+      "quota": { "input": 0.0, "output": 0.1, "cache_write_5m": 0.11, "cache_write_1h": 0.11 }
     },
     "haiku-3": {
       "input": 0.8, "output": 4.0, "cache_write_5m": 1.0, "cache_write_1h": 1.6,
       "context_window": 200000, "family": "haiku", "deprecated": true,
-      "quota": { "input": 0.0, "output": 0.1, "cache_write_5m": 0.0, "cache_write_1h": 0.11 }
+      "quota": { "input": 0.0, "output": 0.1, "cache_write_5m": 0.11, "cache_write_1h": 0.11 }
     }
   },
   "default": {
     "input": 3.0, "output": 15.0, "cache_write_5m": 3.75, "cache_write_1h": 6.0,
     "context_window": 200000, "family": "unknown", "deprecated": false,
-    "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.0, "cache_write_1h": 0.11 }
+    "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.11, "cache_write_1h": 0.11 }
   }
 }

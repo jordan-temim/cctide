@@ -29,9 +29,9 @@ pub struct QuotaWeights {
     pub input: f64,
     #[serde(default = "one")]
     pub output: f64,
-    #[serde(default)]
+    #[serde(default = "default_cache_quota")]
     pub cache_write_5m: f64,
-    #[serde(default = "default_cc1h_quota")]
+    #[serde(default = "default_cache_quota")]
     pub cache_write_1h: f64,
 }
 
@@ -39,18 +39,18 @@ fn one() -> f64 {
     1.0
 }
 
-fn default_cc1h_quota() -> f64 {
+fn default_cache_quota() -> f64 {
     0.11
 }
 
 impl Default for QuotaWeights {
-    /// Opus/Sonnet-class default: output is the reference (1.0), cache_write_1h
-    /// counts ~0.1×, everything else ~0.
+    /// Opus/Sonnet-class default: output is the reference (1.0), both cache writes
+    /// (5m and 1h) count ~0.11×, everything else ~0.
     fn default() -> Self {
         QuotaWeights {
             input: 0.0,
             output: 1.0,
-            cache_write_5m: 0.0,
+            cache_write_5m: 0.11,
             cache_write_1h: 0.11,
         }
     }
@@ -67,10 +67,11 @@ impl QuotaWeights {
 
     /// Fable-class: output counts ~3.3× the opus/sonnet reference (measured on
     /// Max 5×, matches the fable/sonnet output price ratio). Cache keeps the
-    /// cross-family invariant cache_write_1h ≈ 0.11 × output.
+    /// cross-family invariant cache writes ≈ 0.11 × output (both 5m and 1h).
     fn fable() -> Self {
         QuotaWeights {
             output: 3.3,
+            cache_write_5m: 0.36,
             cache_write_1h: 0.36,
             ..QuotaWeights::default()
         }
@@ -283,9 +284,9 @@ mod tests {
 
     #[test]
     fn quota_units_sonnet_basic() {
-        // sonnet quota: input=0, output=1.0, cw5m=0, cw1h=0.11
+        // sonnet quota: input=0, output=1.0, cw5m=0.11, cw1h=0.11
         let units = m().quota_units("claude-sonnet-4-6", 1_000, 500, 200, 100);
-        let expected = 1_000.0 * 0.0 + 500.0 * 1.0 + 200.0 * 0.0 + 100.0 * 0.11;
+        let expected = 1_000.0 * 0.0 + 500.0 * 1.0 + 200.0 * 0.11 + 100.0 * 0.11;
         assert!((units - expected).abs() < 1e-6, "got {units}");
     }
 
@@ -332,6 +333,15 @@ mod tests {
         let no_1h = m().quota_units("claude-sonnet-4-6", 0, 0, 0, 0);
         let with_1h = m().quota_units("claude-sonnet-4-6", 0, 0, 0, 1_000);
         assert!((with_1h - no_1h - 1_000.0 * 0.11).abs() < 1e-6);
+    }
+
+    #[test]
+    fn quota_units_both_cache_writes_weigh_the_same() {
+        // cw5m aligned to cw1h (0.11): equal token counts must contribute equally.
+        let cw5m = m().quota_units("claude-sonnet-4-6", 0, 0, 1_000, 0);
+        let cw1h = m().quota_units("claude-sonnet-4-6", 0, 0, 0, 1_000);
+        assert!((cw5m - 1_000.0 * 0.11).abs() < 1e-6);
+        assert!((cw5m - cw1h).abs() < 1e-9);
     }
 
     // --- context_limit_for ---
@@ -498,6 +508,7 @@ mod tests {
         let sonnet = models.entry_for("claude-sonnet-4-6");
         assert!((sonnet.quota.output - 1.0).abs() < 1e-9);
         assert!((sonnet.quota.cache_write_1h - 0.11).abs() < 1e-9);
+        assert!((sonnet.quota.cache_write_5m - 0.11).abs() < 1e-9);
         assert_eq!(sonnet.quota.input, 0.0);
         let haiku = models.entry_for("claude-haiku-4-5");
         assert!((haiku.quota.output - 0.1).abs() < 1e-9);
