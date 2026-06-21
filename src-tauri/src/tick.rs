@@ -162,6 +162,28 @@ pub fn start_ticker(app: tauri::AppHandle) {
                 *state.config_cache.lock().expect("config_cache poisoned") = config::load();
             }
             do_tick(&app, &mut last_disabled_sig, true);
+            // Fire the "update available" notification from here — the app is
+            // fully initialized by the time the ticker runs, and a send dropped
+            // by the OS is retried next cycle (check_update only marks a version
+            // as announced on success).
+            {
+                let state = app.state::<AppState>();
+                let version = if UPDATE_AVAILABLE.load(Ordering::SeqCst) {
+                    state
+                        .available_update
+                        .lock()
+                        .expect("available_update poisoned")
+                        .as_ref()
+                        .map(|u| u.version.clone())
+                } else {
+                    None
+                };
+                state
+                    .notify_state
+                    .lock()
+                    .expect("notify_state poisoned")
+                    .check_update(&app, version.as_deref());
+            }
             let shimmer_elapsed_ms = SHIMMER_FRAMES as u64 * SHIMMER_MS;
             let state = app.state::<AppState>();
             let refresh_ms = state

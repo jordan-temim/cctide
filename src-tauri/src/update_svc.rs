@@ -8,7 +8,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::{Emitter, Manager};
-use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_updater::UpdaterExt;
 
 use crate::state::{AppState, UpdateInfo};
@@ -56,30 +55,19 @@ pub fn spawn_update_check(app: &tauri::AppHandle) {
                         url,
                         version: version.clone(),
                     };
-                    let is_new = {
-                        let state = app.state::<AppState>();
-                        let mut slot = state
-                            .available_update
-                            .lock()
-                            .expect("available_update poisoned");
-                        let is_new = slot.as_ref().map(|u| u.version != version).unwrap_or(true);
-                        *slot = Some(info);
-                        is_new
-                    };
+                    *app.state::<AppState>()
+                        .available_update
+                        .lock()
+                        .expect("available_update poisoned") = Some(info);
                     UPDATE_AVAILABLE.store(true, Ordering::SeqCst);
                     let _ = app.emit("UPDATE_AVAILABLE", ());
                     // Immediately redraw the tray icon so the "U" glyph appears
-                    // without waiting for the next ticker cycle.
+                    // without waiting for the next ticker cycle. The OS
+                    // notification is fired separately by the ticker loop (see
+                    // NotifyState::check_update) — sending it here, in the
+                    // first seconds after launch, had it dropped by macOS.
                     let app_tick = app.clone();
                     std::thread::spawn(move || crate::tick::do_tick(&app_tick, &mut None, false));
-                    if is_new {
-                        let _ = app
-                            .notification()
-                            .builder()
-                            .title("cctide update available")
-                            .body(format!("v{version} — open cctide to install"))
-                            .show();
-                    }
                 }
                 // Up to date: clear any previously-found update.
                 Ok(None) => {
