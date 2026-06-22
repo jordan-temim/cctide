@@ -9,8 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "tauri": "tauri",
-    "build:mac": "npm run tauri build -- --target universal-apple-darwin && mkdir -p build && mv src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg build/",
-    "build:win": "npm run tauri build && md build & move src-tauri\\target\\release\\bundle\\msi\\*.msi build\\"
+    "build:mac": "npm run tauri build -- --target universal-apple-darwin && mkdir -p build && mv src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg build/"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

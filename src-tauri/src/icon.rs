@@ -1,15 +1,11 @@
 //! Runtime tray-icon rendering: the "CC" gauge whose two C's fill with the live
 //! session (left) and weekly (right) usage.
 //!
-//! Two platform renders (tray icons differ a lot across OSes):
-//! - **macOS**: wide, monochrome *template* (auto-tinted). Fill is shown by a
-//!   thick filled arc over a thin track; alert tiers change the bar colour.
-//! - **Windows/Linux**: square, colour. Each C's filled arc is tinted by its
-//!   alert tier (neutral/green/orange/red) over a grey track.
+//! The macOS menu-bar render: a wide, monochrome *template* (auto-tinted by the
+//! system). Fill is shown by a thick filled arc over a thin track.
 //!
 //! **Dev indicator**: in debug builds (`cfg!(debug_assertions)`), a small "D"
-//! glyph is rendered inside the left C — black on macOS, orange on
-//! Windows/Linux. Compiled away entirely in release builds.
+//! glyph is rendered inside the left C. Compiled away entirely in release builds.
 //!
 //! Geometry mirrors `scripts/gen-icon.mjs` (arc 40°..320°, two C centres,
 //! 3×3 supersampling). Zero external deps.
@@ -24,8 +20,6 @@ const TAU: f64 = 2.0 * PI;
 pub struct IconParams {
     pub session_fill: f64,        // 0..1
     pub weekly_fill: f64,         // 0..1
-    pub session_tier: u8,         // 0..3
-    pub weekly_tier: u8,          // 0..3
     pub disabled: bool,           // tracking off: tracks only + diagonal slash
     pub shimmer_pos: Option<f64>, // 0..1 position of refresh-wave notch along arc
     pub update_available: bool,   // draw a "U" inside the right C when an update waits
@@ -37,16 +31,6 @@ pub struct RenderedIcon {
     pub height: u32,
 }
 
-/// Windows/Linux colour per alert tier.
-fn tier_color(tier: u8) -> [u8; 3] {
-    match tier {
-        1 => [46, 158, 107], // green
-        2 => [224, 138, 59], // orange
-        3 => [208, 57, 43],  // red
-        _ => [217, 119, 87], // neutral terracotta
-    }
-}
-
 struct Geom {
     w: u32,
     h: u32,
@@ -55,11 +39,8 @@ struct Geom {
     cy: f64,
     cx_left: f64,
     cx_right: f64,
-    mono: bool,
-    track: [u8; 3],
 }
 
-#[cfg(target_os = "macos")]
 fn geom() -> Geom {
     // Wide canvas so the C's fill the menu-bar height.
     Geom {
@@ -70,34 +51,16 @@ fn geom() -> Geom {
         cy: 128.0,
         cx_left: 120.0,
         cx_right: 320.0,
-        mono: true,
-        track: [0, 0, 0],
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn geom() -> Geom {
-    // Square canvas for the (square) Windows notification area.
-    Geom {
-        w: 256,
-        h: 256,
-        r: 52.0,
-        t: 20.0,
-        cy: 128.0,
-        cx_left: 80.0,
-        cx_right: 176.0,
-        mono: false,
-        track: [120, 120, 124],
     }
 }
 
 struct C {
     cx: f64,
     fill: f64,
-    color: [u8; 3],
 }
 
-/// Colour+alpha for a single sample point, or transparent.
+/// Colour+alpha for a single sample point, or transparent. The menu-bar icon is
+/// a monochrome template: every opaque pixel is black and the system tints it.
 fn sample(px: f64, py: f64, g: &Geom, cs: &[C; 2], p: &IconParams) -> [f64; 4] {
     let disabled = p.disabled;
     let shimmer_pos = p.shimmer_pos;
@@ -115,11 +78,7 @@ fn sample(px: f64, py: f64, g: &Geom, cs: &[C; 2], p: &IconParams) -> [f64; 4] {
         let ad = ((px - ux).powi(2) + (py - base).powi(2)).sqrt();
         let on_arc = (ad - hw).abs() <= st && py >= base;
         if on_left || on_right || on_arc {
-            return if g.mono {
-                [0.0, 0.0, 0.0, 255.0]
-            } else {
-                [40.0, 120.0, 220.0, 255.0] // blue on Windows/Linux
-            };
+            return [0.0, 0.0, 0.0, 255.0];
         }
     }
     // Dev build indicator: a "D" glyph in the left C (session side).
@@ -133,11 +92,7 @@ fn sample(px: f64, py: f64, g: &Geom, cs: &[C; 2], p: &IconParams) -> [f64; 4] {
         let ad = ((px - spine_x).powi(2) + (py - g.cy).powi(2)).sqrt();
         let on_arc = (ad - hh).abs() <= st && px >= spine_x;
         if on_spine || on_arc {
-            return if g.mono {
-                [0.0, 0.0, 0.0, 255.0]
-            } else {
-                [230.0, 120.0, 20.0, 255.0] // orange on Windows/Linux
-            };
+            return [0.0, 0.0, 0.0, 255.0];
         }
     }
     for c in cs {
@@ -157,33 +112,15 @@ fn sample(px: f64, py: f64, g: &Geom, cs: &[C; 2], p: &IconParams) -> [f64; 4] {
         if !disabled {
             if let Some(sp) = shimmer_pos {
                 if (t - sp).abs() < 0.04 && (dist - g.r).abs() <= g.t / 2.0 {
-                    return if g.mono {
-                        [0.0, 0.0, 0.0, 0.0] // transparent gap
-                    } else {
-                        [
-                            g.track[0] as f64,
-                            g.track[1] as f64,
-                            g.track[2] as f64,
-                            255.0,
-                        ]
-                    };
+                    return [0.0, 0.0, 0.0, 0.0]; // transparent gap
                 }
             }
         }
 
-        if g.mono {
-            let on_fill = !disabled && t <= c.fill && (dist - g.r).abs() <= g.t / 2.0;
-            let on_track = (dist - g.r).abs() <= g.t * 0.22;
-            if on_fill || on_track {
-                return [0.0, 0.0, 0.0, 255.0];
-            }
-        } else if (dist - g.r).abs() <= g.t / 2.0 {
-            let col = if !disabled && t <= c.fill {
-                c.color
-            } else {
-                g.track
-            };
-            return [col[0] as f64, col[1] as f64, col[2] as f64, 255.0];
+        let on_fill = !disabled && t <= c.fill && (dist - g.r).abs() <= g.t / 2.0;
+        let on_track = (dist - g.r).abs() <= g.t * 0.22;
+        if on_fill || on_track {
+            return [0.0, 0.0, 0.0, 255.0];
         }
     }
     // Diagonal slash from top-right to bottom-left when disabled.
@@ -193,8 +130,7 @@ fn sample(px: f64, py: f64, g: &Geom, cs: &[C; 2], p: &IconParams) -> [f64; 4] {
         let len = (w * w + h * h).sqrt();
         let dist = (px * h + py * w - w * h).abs() / len;
         if dist <= g.t * 0.22 {
-            let col = g.track;
-            return [col[0] as f64, col[1] as f64, col[2] as f64, 255.0];
+            return [0.0, 0.0, 0.0, 255.0];
         }
     }
     [0.0, 0.0, 0.0, 0.0]
@@ -207,12 +143,10 @@ pub fn render(p: &IconParams) -> RenderedIcon {
         C {
             cx: g.cx_left,
             fill: p.session_fill.clamp(0.0, 1.0),
-            color: tier_color(p.session_tier),
         },
         C {
             cx: g.cx_right,
             fill: p.weekly_fill.clamp(0.0, 1.0),
-            color: tier_color(p.weekly_tier),
         },
     ];
 
@@ -258,8 +192,6 @@ mod tests {
         IconParams {
             session_fill: 0.5,
             weekly_fill: 0.5,
-            session_tier: 0,
-            weekly_tier: 0,
             disabled: false,
             shimmer_pos: None,
             update_available: false,
@@ -337,8 +269,6 @@ mod tests {
         let r = render(&IconParams {
             session_fill: 1.0,
             weekly_fill: 1.0,
-            session_tier: 3,
-            weekly_tier: 3,
             ..base()
         });
         assert!(opaque_count(&r) > 0);

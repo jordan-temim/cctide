@@ -1,4 +1,4 @@
-//! System (macOS/Windows) notifications at the global alert levels.
+//! System (macOS) notifications at the global alert levels.
 //!
 //! Fires once each time the session or weekly bar reaches a *new, higher* alert
 //! level (e.g. 33 → 66 → 90%). Re-arms when the bar drops back below a level.

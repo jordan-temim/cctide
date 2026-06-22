@@ -36,7 +36,7 @@ pub struct Config {
     /// Auto-refresh interval for the panel, in seconds.
     #[serde(default)]
     pub refresh_secs: u64,
-    /// Whether OS (Mac/Windows) system notifications fire at the alert levels.
+    /// Whether OS (macOS) system notifications fire at the alert levels.
     #[serde(default = "default_true")]
     pub notifications_enabled: bool,
     /// The three global alert levels (%), driving icon tiers, bar colours and
@@ -102,11 +102,10 @@ impl Default for Config {
 
 /// The app's own data directory, derived from the bundle identifier — mirrors
 /// Tauri's `app_config_dir` without needing an `AppHandle`:
-/// macOS `~/Library/Application Support/com.cctide`, Windows
-/// `%APPDATA%\com.cctide`, Linux `~/.config/com.cctide`.
+/// macOS `~/Library/Application Support/com.cctide`.
 const APP_DIR: &str = "com.cctide";
 
-/// Current config path: `<os-config-dir>/com.cctide/cctide.json`.
+/// Current config path: `~/Library/Application Support/com.cctide/cctide.json`.
 pub fn config_path() -> Option<PathBuf> {
     Some(dirs::config_dir()?.join(APP_DIR).join("cctide.json"))
 }

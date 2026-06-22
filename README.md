@@ -18,13 +18,13 @@
   <a href="https://github.com/jordan-temim/cctide/releases"><img src="https://img.shields.io/github/downloads/jordan-temim/cctide/total" alt="Downloads" /></a>
 </p>
 <p align="center">
-  <a href="https://github.com/jordan-temim/cctide/releases"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey" alt="Platform" /></a>
+  <a href="https://github.com/jordan-temim/cctide/releases"><img src="https://img.shields.io/badge/platform-macOS-lightgrey" alt="Platform" /></a>
   <a href="https://tauri.app"><img src="https://img.shields.io/badge/built%20with-Tauri%20v2-24C8DB" alt="Built with Tauri v2" /></a>
   <a href="https://github.com/jordan-temim/cctide/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License" /></a>
   <a href="#no-credentials-ever"><img src="https://img.shields.io/badge/telemetry-none-brightgreen" alt="No telemetry" /></a>
 </p>
 
-**Local Claude Code usage gauge — menu bar on macOS, system tray on Windows.**
+**Local Claude Code usage gauge — lives in the macOS menu bar.**
 
 Track your session and weekly quota, open sessions' context windows, project memory, and RTK savings.
 
@@ -48,9 +48,9 @@ The panel is organized into **five tabs**:
 | **Analytics** | Weekly window, Token types, API cost, Outcomes | Per-model token trend for the week, daily input/cache/output split, reference $ cost, and a classification of the week's quota spend by what the work became in git (shipped / pending / reverted / abandoned) |
 | **Extras**    | RTK                                            | Tokens saved (shown only if `rtk` is installed)                                                                                                                                                              |
 
-The session and weekly bars are **15-segment fuel gauges**. The tray icon is live: two C-shapes fill with session (left) and weekly (right) usage. On macOS they blink at an escalating rate as levels are crossed. On Windows each C is tinted green → orange → red. When an update is available a **"U"** appears in the right C (see [Updates](#updates)); development builds draw a **"D"** in the left C.
+The session and weekly bars are **15-segment fuel gauges**. The menu-bar icon is live: two C-shapes fill with session (left) and weekly (right) usage, and blink at an escalating rate as levels are crossed. When an update is available a **"U"** appears in the right C (see [Updates](#updates)); development builds draw a **"D"** in the left C.
 
-Every 60 seconds (configurable via `refresh_secs`), cctide re-reads the local JSONL files and a small notch briefly sweeps both C arcs — a visual confirmation that the data just refreshed. The same sweep also plays when you save a calibration, toggle tracking, or update alert levels. The notch is a transparent gap on macOS and a grey dip on Windows; it completes in about 2 seconds and has no effect on the displayed values.
+Every 60 seconds (configurable via `refresh_secs`), cctide re-reads the local JSONL files and a small notch briefly sweeps both C arcs — a visual confirmation that the data just refreshed. The same sweep also plays when you save a calibration, toggle tracking, or update alert levels. The notch is a transparent gap; it completes in about 2 seconds and has no effect on the displayed values.
 
 ### A look at each tab
 
@@ -116,9 +116,8 @@ Pre-built binaries are available on the [**Releases page**](https://github.com/j
 | Platform                      | File                       |
 | ----------------------------- | -------------------------- |
 | macOS (Intel + Apple Silicon) | `cctide-*-universal.dmg` |
-| Windows 10 / 11               | `cctide-*.msi`           |
 
-Skip to the platform section below for first-launch instructions.
+See the macOS section below for first-launch instructions.
 
 ### Build from source
 
@@ -150,20 +149,6 @@ Output: `build/cctide-*-universal.dmg`
 > binary and get their **own entry** in that list (generic icon), separate
 > from the installed app.
 
-#### Windows 10 / 11
-
-Prerequisites: [Build Tools for Visual Studio](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (MSVC toolchain), [Node.js](https://nodejs.org), [Rust](https://rustup.rs).
-
-```powershell
-npm install
-npm run build:win
-```
-
-Output: `build\cctide-*.msi`
-
-1. Run the installer. SmartScreen may show "unknown publisher" → **More info** → **Run anyway**.
-2. The icon appears in the **system tray** (bottom right). Click to open.
-
 ---
 
 ## Updates
@@ -179,7 +164,7 @@ Click **Install** to download it, then **Restart now** to apply. Nothing is
 installed or restarted without your click.
 
 > Auto-update works from the first release that shipped it onward. If you're on an
-> older build, grab the latest `.dmg`/`.msi` from the
+> older build, grab the latest `.dmg` from the
 > [Releases page](https://github.com/jordan-temim/cctide/releases/latest) once.
 
 ---
@@ -197,10 +182,6 @@ This is Gatekeeper blocking the unsigned build, not actual corruption. Allow it 
 
 - **System Settings → Privacy & Security → Security** (scroll down) → **Open Anyway**, or
 - in Terminal: `xattr -dr com.apple.quarantine /Applications/cctide.app`
-
-### Windows SmartScreen blocks the installer
-
-Unsigned MSI → **More info** → **Run anyway**. The app and its registry entries are removed cleanly on uninstall.
 
 ### The bars show 0% or look wrong
 
@@ -227,11 +208,11 @@ Only **running, interactive** Claude Code processes appear. Sub-agent processes 
 
 ### The Extras / RTK tab is missing
 
-The RTK section only shows when the `rtk` binary is installed and on your `PATH`. Verify with `which rtk` (`where rtk` on Windows).
+The RTK section only shows when the `rtk` binary is installed and on your `PATH`. Verify with `which rtk`.
 
 ### An update never appears, or won't install
 
-Auto-update works only from the first release that shipped the updater onward. If you're on an older build, grab the latest `.dmg`/`.msi` from the [Releases page](https://github.com/jordan-temim/cctide/releases/latest) once — subsequent updates are then in-app.
+Auto-update works only from the first release that shipped the updater onward. If you're on an older build, grab the latest `.dmg` from the [Releases page](https://github.com/jordan-temim/cctide/releases/latest) once — subsequent updates are then in-app.
 
 ---
 
@@ -248,22 +229,6 @@ rm -rf ~/Library/Application\ Support/com.cctide
 ```
 
 To remove the notification entry, go to **System Settings → Notifications**, find **cctide**, and delete it.
-
-### Windows
-
-Go to **Settings → Apps**, search for **cctide**, and click **Uninstall**. The MSI uninstaller removes the app and its registry entries automatically.
-
-To also remove the config file:
-
-```
-%APPDATA%\com.cctide\
-```
-
-Delete that folder manually in Explorer or with:
-
-```powershell
-Remove-Item -Recurse -Force "$env:APPDATA\com.cctide"
-```
 
 ---
 
@@ -308,10 +273,10 @@ The "Open sessions" panel shows each active Claude Code process and how full its
 
 <p align="center"><img src="docs/system_notification.png" width="346" /></p>
 
-Three global alert levels (default **33 / 66 / 90%**, editable in the **macOS / Windows notifications** section) drive everything at once:
+Three global alert levels (default **33 / 66 / 90%**, editable in the **macOS notifications** section) drive everything at once:
 
 - **Segment colours** — neutral → green → orange → red as usage crosses each level
-- **Tray icon** — macOS blinks at an escalating cadence until you open the panel; Windows tints each C
+- **Tray icon** — blinks at an escalating cadence until you open the panel
 - **OS notifications** — one notification per level crossing per bar, re-armed when the bar drops back below
 
 The icon reacts independently of the notifications toggle.

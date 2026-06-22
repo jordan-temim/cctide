@@ -1,6 +1,6 @@
 # cctide
 
-A menu-bar / system-tray gauge for Claude Code usage. The Tauri app is at the
+A macOS menu-bar gauge for Claude Code usage. The Tauri app is at the
 repo root.
 
 > **Language policy:** everything in this repo is **English only** — code,
@@ -8,7 +8,7 @@ repo root.
 
 ## What it is
 
-A macOS menu-bar / Windows system-tray app that shows Claude Code usage,
+A macOS menu-bar app that shows Claude Code usage,
 similar to `claude.ai/settings/usage`, but **100% local — it never calls the
 Anthropic API**. Built with **Tauri v2** (Rust backend + web UI).
 
@@ -27,9 +27,9 @@ drive everything at once — the session/weekly **segment colours**, the **tray 
 and the **OS notifications**. `level_for()` in `config.rs` maps a % to a level 0..3.
 
 The **tray icon is live**: the two C's fill with session (left) / weekly (right)
-usage. As usage crosses the levels it escalates: on macOS the icon blinks (faster
+usage. As usage crosses the levels it escalates: the icon blinks (faster
 per level) until the panel is opened (acknowledged), re-arming when a higher level
-is reached; on Windows each C is tinted green→orange→red. The icon reacts
+is reached. The icon reacts
 independently of the notifications toggle (gated only by `dynamic_icon`).
 Rendered in `icon.rs`, driven by a ticker thread in `tick.rs` (every
 `refresh_secs`, default 60 s) via `do_tick()`, which also fires notifications
@@ -45,8 +45,8 @@ NSStatusItem behaviour) shows the 5h window's reset time in `HH:MM` local format
 when a live session is running (`session.reset_at` → `reset_time_label()` in
 `tick.rs`); cleared to empty when no session is active or tracking is disabled.
 
-**Dev builds** draw a **"D" glyph inside the left C** (black on macOS, orange on
-Windows/Linux), compiled in via `cfg!(debug_assertions)` and absent from release
+**Dev builds** draw a **"D" glyph inside the left C**, compiled in via
+`cfg!(debug_assertions)` and absent from release
 binaries. It sits in the *left* C deliberately, so it never collides with the
 **"U" update glyph** drawn in the *right* C (see "Releases & auto-update").
 
@@ -66,8 +66,7 @@ Everything is read from `~/.claude`:
   non-`interactive` kinds are filtered out.
 - **Memory**: `~/.claude/projects/<project>/memory/*.md`.
 - **App config**: the app's own data dir from the bundle id `com.cctide`
-  (macOS `~/Library/Application Support/com.cctide/cctide.json`; Windows
-  `%APPDATA%\com.cctide\`; Linux `~/.config/com.cctide/`). Holds calibration
+  (macOS `~/Library/Application Support/com.cctide/cctide.json`). Holds calibration
   anchors, context-limit overrides, refresh interval, `notifications_enabled`,
   `alert_levels`, `dynamic_icon`, `tracking_enabled`.
 
@@ -236,7 +235,7 @@ src-tauri/
     memory.rs         memory file reader
     rtk.rs            `rtk gain --format json` integration (optional)
     notify.rs         threshold-crossing native notifications (de-duped)
-    icon.rs           runtime CC-gauge tray icon (mac mono+blink / win colour)
+    icon.rs           runtime CC-gauge tray icon (mono template + blink)
     config.rs         persisted config load/save (calibration, thresholds)
     models.rs         per-model data (models.json): quota weights + prices, context window
 ```
@@ -250,7 +249,6 @@ targets for the universal macOS build), Xcode Command Line Tools (macOS).
 npm install
 npm run tauri dev          # run with hot reload
 npm run build:mac          # macOS universal .dmg → build/  (run on a Mac)
-npm run build:win          # Windows .msi → build\          (run on a Windows machine)
 cargo check --manifest-path src-tauri/Cargo.toml    # fast Rust check
 cargo test --manifest-path src-tauri/Cargo.toml     # Rust unit tests
 npx tsc --noEmit           # frontend typecheck
@@ -261,7 +259,7 @@ Tests: Rust units live in each module's `#[cfg(test)]`; the frontend uses
 **Vitest** for pure helpers (e.g. `nextWeeklyReset` in `utils.ts` → `utils.test.ts`).
 Both run in CI (`lint.yml`).
 
-Builds are **unsigned** (no Apple/Windows code-signing certificate) — see
+Builds are **unsigned** (no Apple code-signing certificate) — see
 `README.md` for the first-launch steps users must take.
 
 > **Dev tray icon invisible on macOS?** macOS gates menu bar icons per app:
@@ -281,8 +279,8 @@ Triggered by pushing a `v*` tag (real release) or `workflow_dispatch` (test run,
 no GitHub Release). The pipeline is a single chain so a bad commit can't ship:
 
 ```
-lint ──┬──► build-frontend ──► build-mac ──┬──► release
-security ──┘                └──► build-win ──┘
+lint ──┬──► build-frontend ──► build-mac ──► release
+security ──┘
 ```
 
 - `lint` / `security` run the existing `lint.yml` / `security.yml` via
@@ -293,16 +291,16 @@ security ──┘                └──► build-win ──┘
   `contents: write` (create the release) + `security-events: write` (gitleaks /
   semgrep).
 - `build-frontend` runs `npm run build` once on Ubuntu and uploads `dist/`. The
-  two OS build jobs download it and patch `beforeBuildCommand` to `""` via `jq`
-  so Tauri doesn't rebuild the frontend on the (slower, pricier) mac/win runners.
-- `build-mac` builds the universal target; `build-win` builds the MSI. Both copy
-  their outputs into a flat `upload/` dir before `upload-artifact` — otherwise
-  the action keeps the `dmg/` + `macos/` subdirs (least-common-ancestor
-  behaviour) and the release job's `artifacts/*.app.tar.gz` glob misses them. The
-  `cp` also fails loudly in the build job if an expected file is absent, instead
-  of the multi-path upload silently skipping it.
-- `release` (tag only) downloads both artifact sets, generates `latest.json`, and
-  publishes the GitHub Release with the `.dmg`, `.msi`, their `.sig`s, and
+  mac build job downloads it and patches `beforeBuildCommand` to `""` via `jq`
+  so Tauri doesn't rebuild the frontend on the (slower, pricier) mac runner.
+- `build-mac` builds the universal target and copies its outputs into a flat
+  `upload/` dir before `upload-artifact` — otherwise the action keeps the
+  `dmg/` + `macos/` subdirs (least-common-ancestor behaviour) and the release
+  job's `artifacts/*.app.tar.gz` glob misses them. The `cp` also fails loudly in
+  the build job if an expected file is absent, instead of the multi-path upload
+  silently skipping it.
+- `release` (tag only) downloads the macOS artifacts, generates `latest.json`, and
+  publishes the GitHub Release with the `.dmg`, its `.sig`, and
   `latest.json` attached.
 
 ### Signing & updater bundles
@@ -316,10 +314,10 @@ into the binary, it **cannot change** without breaking updates for installed
 clients.
 
 `bundle.createUpdaterArtifacts: true` is what makes `tauri build` emit the
-`.app.tar.gz` (+ `.sig`) on macOS and the `.msi.sig` on Windows — without it the
+`.app.tar.gz` (+ `.sig`) on macOS — without it the
 build only produces the installer and the updater has nothing to fetch. The
-updater downloads the `.app.tar.gz` / `.msi` (not the `.dmg`, which is
-install-only), so `latest.json`'s `darwin-universal` URL points at the
+updater downloads the `.app.tar.gz` (not the `.dmg`, which is
+install-only), so `latest.json`'s `darwin-*` URLs point at the
 `.app.tar.gz`.
 
 `latest.json` is served from the **latest** GitHub Release
@@ -331,8 +329,8 @@ install-only), so `latest.json`'s `darwin-universal` URL points at the
   "version": "v0.2.6",
   "pub_date": "…Z",
   "platforms": {
-    "darwin-universal": { "url": "…/cctide.app.tar.gz", "signature": "…" },
-    "windows-x86_64":   { "url": "…/cctide_x64.msi",    "signature": "…" }
+    "darwin-x86_64":  { "url": "…/cctide.app.tar.gz", "signature": "…" },
+    "darwin-aarch64": { "url": "…/cctide.app.tar.gz", "signature": "…" }
   }
 }
 ```

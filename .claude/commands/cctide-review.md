@@ -53,7 +53,7 @@ main.ts (composition root)
 ## Data integrity
 
 - No code path must write to `~/.claude` — only reads (`scan.rs`, `context.rs`, `memory.rs`). `config.rs` writes to `<os-config-dir>/com.cctide/`, never to `~/.claude`.
-- `std::fs::rename` on Windows uses `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING` — atomic within the same volume ✓.
+- `std::fs::rename` on macOS is atomic within the same volume ✓.
 
 ## Output format
 

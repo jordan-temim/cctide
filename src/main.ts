@@ -102,9 +102,8 @@ window.addEventListener("DOMContentLoaded", async () => {
       void loadOutcomes();
     }
   });
-  const osName = navigator.userAgent.toLowerCase().includes("mac") ? "macOS" : "Windows";
   const notifLabel = document.getElementById("notif-section-label");
-  if (notifLabel) notifLabel.textContent = `${osName} notifications`;
+  if (notifLabel) notifLabel.textContent = "macOS notifications";
   getVersion().then(v => {
     const el = document.getElementById("app-version");
     if (el) el.textContent = `v ${v}`;

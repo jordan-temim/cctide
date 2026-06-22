@@ -34,11 +34,7 @@ fn toggle_window(app: &tauri::AppHandle) {
         if win.is_visible().unwrap_or(false) {
             let _ = win.hide();
         } else {
-            #[cfg(target_os = "macos")]
-            let pos = Position::TrayBottomCenter;
-            #[cfg(not(target_os = "macos"))]
-            let pos = Position::TrayBottomRight;
-            let _ = win.move_window(pos);
+            let _ = win.move_window(Position::TrayBottomCenter);
             let _ = win.show();
             let _ = win.set_focus();
         }

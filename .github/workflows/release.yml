@@ -113,79 +113,9 @@ jobs:
           path: upload/
           if-no-files-found: error
 
-  build-win:
-    name: Build Windows
-    needs: [build-frontend]
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: lts/*
-          cache: npm
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Download frontend
-        uses: actions/download-artifact@v8
-        with:
-          name: frontend-dist
-          path: dist/
-
-      - name: Check signing secret
-        shell: bash
-        run: |
-          if [ -z "$KEY" ]; then
-            echo "ERROR: TAURI_SIGNING_PRIVATE_KEY is not set — updater bundle will not be generated"
-            exit 1
-          fi
-          echo "TAURI_SIGNING_PRIVATE_KEY is set (${#KEY} chars)"
-        env:
-          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-
-      - name: Skip frontend rebuild
-        shell: bash
-        run: |
-          tmp=$(mktemp)
-          jq '.build.beforeBuildCommand = ""' src-tauri/tauri.conf.json > "$tmp" && mv "$tmp" src-tauri/tauri.conf.json
-
-      - name: Build app bundle
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri build -- --bundles msi
-
-      - name: Collect artifacts
-        shell: bash
-        run: |
-          bundle=src-tauri/target/release/bundle
-          mkdir upload
-          cp "$bundle"/msi/*.msi upload/
-          cp "$bundle"/msi/*.msi.sig upload/
-          ls -la upload/
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: windows-artifacts
-          path: upload/
-          if-no-files-found: error
-
   release:
     name: Publish release
-    needs: [build-mac, build-win]
+    needs: [build-mac]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
@@ -193,12 +123,6 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: macos-artifacts
-          path: artifacts/
-
-      - name: Download Windows artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: windows-artifacts
           path: artifacts/
 
       - name: List artifacts
@@ -210,22 +134,17 @@ jobs:
           VERSION="${TAG#v}"                # e.g. 0.2.8 — must be plain semver
           TARGZ_NAME=$(ls artifacts/*.app.tar.gz | xargs basename)
           TARGZ_SIG=$(cat artifacts/*.app.tar.gz.sig)
-          MSI_NAME=$(ls artifacts/*.msi | xargs basename)
-          MSI_SIG=$(cat artifacts/*.msi.sig)
           jq -n \
             --arg version "$VERSION" \
             --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg mac_url "https://github.com/jordan-temim/cctide/releases/download/$TAG/$TARGZ_NAME" \
             --arg mac_sig "$TARGZ_SIG" \
-            --arg msi_url "https://github.com/jordan-temim/cctide/releases/download/$TAG/$MSI_NAME" \
-            --arg msi_sig "$MSI_SIG" \
             '{
               version: $version,
               pub_date: $pub_date,
               platforms: {
                 "darwin-x86_64": { url: $mac_url, signature: $mac_sig },
-                "darwin-aarch64": { url: $mac_url, signature: $mac_sig },
-                "windows-x86_64": { url: $msi_url, signature: $msi_sig }
+                "darwin-aarch64": { url: $mac_url, signature: $mac_sig }
               }
             }' > artifacts/latest.json
 

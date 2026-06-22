@@ -1,7 +1,7 @@
 [advisories]
 # Ignore "unmaintained" notices for Linux GTK3 bindings: these crates are
-# Linux-only and are never compiled or shipped on the app's macOS/Windows
-# targets.  Upstream Tauri owns the upgrade path; we cannot fix them here.
+# Linux-only and are never compiled or shipped on the app's macOS
+# target.  Upstream Tauri owns the upgrade path; we cannot fix them here.
 ignore = [
     # gtk-rs GTK3 no longer maintained (RUSTSEC-2024-0411 … 0420)
     "RUSTSEC-2024-0411",
@@ -23,7 +23,7 @@ ignore = [
     "RUSTSEC-2025-0098",
     "RUSTSEC-2025-0100",
     # glib VariantStrIter unsound — Linux-only GTK dependency, not compiled on
-    # macOS/Windows; Tauri owns the upgrade path
+    # macOS; Tauri owns the upgrade path
     "RUSTSEC-2024-0429",
 ]
 

@@ -44,8 +44,6 @@ pub fn do_tick(
             let rendered = icon::render(&icon::IconParams {
                 session_fill: 0.0,
                 weekly_fill: 0.0,
-                session_tier: 0,
-                weekly_tier: 0,
                 disabled: true,
                 shimmer_pos: None,
                 update_available: upd,
@@ -78,10 +76,6 @@ pub fn do_tick(
             .map(|p| (p / 100.0).clamp(0.0, 1.0))
             .unwrap_or(0.0),
     );
-    let tiers = (
-        config::level_for(session.percent, &cfg.alert_levels),
-        config::level_for(weekly.percent, &cfg.alert_levels),
-    );
     state
         .notify_state
         .lock()
@@ -111,8 +105,6 @@ pub fn do_tick(
             let rendered = icon::render(&icon::IconParams {
                 session_fill: fills.0,
                 weekly_fill: fills.1,
-                session_tier: tiers.0,
-                weekly_tier: tiers.1,
                 disabled: false,
                 shimmer_pos,
                 update_available,
