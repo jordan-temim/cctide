@@ -145,11 +145,24 @@ impl Default for Models {
             "fable".into(),
             entry(10.0, 50.0, 12.5, 20.0, QuotaWeights::fable()),
         );
+        // Mythos 5 (limited availability): same $10/$50 tier as fable; quota is an
+        // unverified estimate mirroring fable (no lab data yet).
+        models.insert(
+            "mythos-5".into(),
+            entry(10.0, 50.0, 12.5, 20.0, QuotaWeights::fable()),
+        );
+        models.insert(
+            "mythos".into(),
+            entry(10.0, 50.0, 12.5, 20.0, QuotaWeights::fable()),
+        );
         models.insert("opus-4-8".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
         models.insert("opus-4-7".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
         models.insert("opus-4-6".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
         models.insert("opus-4-1".into(), entry(15.0, 75.0, 18.75, 30.0, std()));
         models.insert("opus".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
+        // Sonnet 5 prices = standard rates ($3/$15) effective 2026-09-01;
+        // introductory $2/$10 runs through 2026-08-31 (reference-only).
+        models.insert("sonnet-5".into(), entry(3.0, 15.0, 3.75, 6.0, std()));
         models.insert("sonnet-4-6".into(), entry(3.0, 15.0, 3.75, 6.0, std()));
         models.insert("sonnet".into(), entry(3.0, 15.0, 3.75, 6.0, std()));
         models.insert(

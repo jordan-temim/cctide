@@ -1,5 +1,5 @@
 {
-  "_comment": "Per-model data shipped with the app. TWO independent weight sets: (1) $/MTok PRICES (input/output/cache_write_*) kept for reference/info; (2) QUOTA weights under 'quota' — empirical, used by quota_units to estimate the 5h/weekly %. From the lab regression (2026-06, Pro + Max 5x): output dominates (opus == sonnet; haiku ~0.1x; fable ~3.3x — matches its output price ratio vs sonnet), both cache writes ~0.11x the model's own output weight (cache_write_5m aligned to cache_write_1h, measured 2026-06-20 from a cc5m-heavy session), and input/cache_read ~0 (cache_read is never passed to quota_units anyway). Plan changes only the absolute budget (measured Max 5x = ~5.3x Pro), absorbed by calibration. Only ratios matter. context_window in tokens. Keys match a substring of the model id; longest match wins.",
+  "_comment": "Per-model data shipped with the app. TWO independent weight sets: (1) $/MTok PRICES (input/output/cache_write_*) kept for reference/info; (2) QUOTA weights under 'quota' — empirical, used by quota_units to estimate the 5h/weekly %. From the lab regression (2026-06, Pro + Max 5x): output dominates (opus == sonnet; haiku ~0.1x; fable ~3.3x — matches its output price ratio vs sonnet), both cache writes ~0.11x the model's own output weight (cache_write_5m aligned to cache_write_1h, measured 2026-06-20 from a cc5m-heavy session), and input/cache_read ~0 (cache_read is never passed to quota_units anyway). Plan changes only the absolute budget (measured Max 5x = ~5.3x Pro), absorbed by calibration. Only ratios matter. context_window in tokens. Keys match a substring of the model id; longest match wins. NOTE: sonnet-5 prices are the STANDARD rates ($3/$15) that take effect 2026-09-01; introductory rates ($2/$10) run through 2026-08-31 — reference-only, quota unaffected. mythos-* quota is an unverified estimate mirroring fable (same $10/$50 tier + new tokenizer), no lab data yet.",
   "models": {
     "fable-5": {
       "input": 10.0, "output": 50.0, "cache_write_5m": 12.5, "cache_write_1h": 20.0,
@@ -9,6 +9,16 @@
     "fable": {
       "input": 10.0, "output": 50.0, "cache_write_5m": 12.5, "cache_write_1h": 20.0,
       "context_window": 200000, "family": "fable", "deprecated": false,
+      "quota": { "input": 0.0, "output": 3.3, "cache_write_5m": 0.36, "cache_write_1h": 0.36 }
+    },
+    "mythos-5": {
+      "input": 10.0, "output": 50.0, "cache_write_5m": 12.5, "cache_write_1h": 20.0,
+      "context_window": 200000, "family": "mythos", "deprecated": false,
+      "quota": { "input": 0.0, "output": 3.3, "cache_write_5m": 0.36, "cache_write_1h": 0.36 }
+    },
+    "mythos": {
+      "input": 10.0, "output": 50.0, "cache_write_5m": 12.5, "cache_write_1h": 20.0,
+      "context_window": 200000, "family": "mythos", "deprecated": false,
       "quota": { "input": 0.0, "output": 3.3, "cache_write_5m": 0.36, "cache_write_1h": 0.36 }
     },
     "opus-4-8": {
@@ -33,12 +43,17 @@
     },
     "opus-4-1": {
       "input": 15.0, "output": 75.0, "cache_write_5m": 18.75, "cache_write_1h": 30.0,
-      "context_window": 200000, "family": "opus", "deprecated": false,
+      "context_window": 200000, "family": "opus", "deprecated": true,
       "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.11, "cache_write_1h": 0.11 }
     },
     "opus": {
       "input": 5.0, "output": 25.0, "cache_write_5m": 6.25, "cache_write_1h": 10.0,
       "context_window": 200000, "family": "opus", "deprecated": false,
+      "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.11, "cache_write_1h": 0.11 }
+    },
+    "sonnet-5": {
+      "input": 3.0, "output": 15.0, "cache_write_5m": 3.75, "cache_write_1h": 6.0,
+      "context_window": 200000, "family": "sonnet", "deprecated": false,
       "quota": { "input": 0.0, "output": 1.0, "cache_write_5m": 0.11, "cache_write_1h": 0.11 }
     },
     "sonnet-4-6": {
