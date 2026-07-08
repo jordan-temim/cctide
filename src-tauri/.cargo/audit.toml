@@ -1,0 +1,15 @@
+[advisories]
+# Ignored RustSec advisories, with justification. Revisit whenever the
+# upstream dependency tree moves — drop an entry as soon as a fixed version
+# becomes reachable.
+ignore = [
+    # quick-xml DoS advisories (quadratic attribute scan / unbounded namespace
+    # allocation). Fixed in >=0.41.0, but unreachable: `plist` (via tauri) pins
+    # ^0.39 and `tauri-winrt-notification` (via notify-rust) pins ^0.37, so no
+    # `cargo update` selects 0.41. Both are DoS vectors that require parsing
+    # attacker-controlled XML; cctide parses only local, trusted files
+    # (~/.claude JSONL, macOS plists), and the 0.37 copy is Windows-only
+    # (tauri-winrt-notification never compiles on macOS). Practical risk: nil.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+]
