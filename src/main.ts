@@ -79,8 +79,15 @@ function setupAutoResize() {
 
 function setupTracking(cfg: Config) {
   const toggle = $<HTMLInputElement>("tracking-toggle");
+  const label = $<HTMLElement>("track-label");
+  const syncLabel = () => {
+    label.textContent = toggle.checked ? "Tracking on" : "Paused";
+    label.classList.toggle("paused", !toggle.checked);
+  };
   toggle.checked = cfg.tracking_enabled ?? true;
+  syncLabel();
   toggle.addEventListener("change", async () => {
+    syncLabel();
     await invoke("set_tracking", { enabled: toggle.checked });
   });
 }

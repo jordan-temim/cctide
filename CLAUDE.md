@@ -40,11 +40,6 @@ update without waiting for the next tick. The shimmer animation (5 frames ×
 400 ms sweep) plays on every `do_tick` call. macOS notifications need permission
 (requested at startup) and only surface reliably from the installed build.
 
-The **tray title** (text appended to the right of the CC icon, standard macOS
-NSStatusItem behaviour) shows the 5h window's reset time in `HH:MM` local format
-when a live session is running (`session.reset_at` → `reset_time_label()` in
-`tick.rs`); cleared to empty when no session is active or tracking is disabled.
-
 **Dev builds** draw a **"D" glyph inside the left C**, compiled in via
 `cfg!(debug_assertions)` and absent from release
 binaries. It sits in the *left* C deliberately, so it never collides with the
@@ -226,7 +221,7 @@ src-tauri/
     main.rs           binary entry point
     commands.rs       Tauri command handlers (invoke → Rust)
     state.rs          AppState struct + shared mutable state
-    tick.rs           background ticker thread (refresh loop, tray title, notifications)
+    tick.rs           background ticker thread (refresh loop, notifications)
     update_svc.rs     update check + install + restart
     scan.rs           JSONL discovery + parsing + mtime cache
     usage.rs          5h window + weekly calibration math
