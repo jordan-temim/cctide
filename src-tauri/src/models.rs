@@ -155,6 +155,7 @@ impl Default for Models {
             "mythos".into(),
             entry(10.0, 50.0, 12.5, 20.0, QuotaWeights::fable()),
         );
+        models.insert("opus-5".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
         models.insert("opus-4-8".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
         models.insert("opus-4-7".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
         models.insert("opus-4-6".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
