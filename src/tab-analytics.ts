@@ -120,7 +120,7 @@ export function renderChart(buckets: DayBucket[]) {
 
   container.appendChild(svg);
 
-  if (models.length > 1) {
+  if (models.length > 0) {
     buildLegend(
       container,
       models.map((m) => ({ color: modelColor(m), label: modelLabel(m) })),

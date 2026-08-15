@@ -24,7 +24,10 @@ export function renderUsage(session: SessionUsage, weekly: WeeklyUsage, cfg: Con
     tierClass(weekly.percent, cfg.alert_levels),
   );
 
-  const fmtPct = (p: number | null) => p != null ? ` ≈${p.toFixed(2)}%` : "";
+  // The exact % is a dev-only debugging aid (comparing against /usage) — the
+  // segmented bar itself is the intended production display.
+  const fmtPct = (p: number | null) =>
+    import.meta.env.DEV && p != null ? ` ≈${p.toFixed(2)}%` : "";
   $<HTMLSpanElement>("session-pct").textContent = fmtPct(session.percent);
   $<HTMLSpanElement>("weekly-pct").textContent = fmtPct(weekly.percent);
 
