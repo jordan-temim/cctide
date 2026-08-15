@@ -58,7 +58,7 @@ pub fn spawn_update_check(app: &tauri::AppHandle) {
                     *app.state::<AppState>()
                         .available_update
                         .lock()
-                        .expect("available_update poisoned") = Some(info);
+                        .unwrap_or_else(|e| e.into_inner()) = Some(info);
                     UPDATE_AVAILABLE.store(true, Ordering::SeqCst);
                     let _ = app.emit("UPDATE_AVAILABLE", ());
                     // Immediately redraw the tray icon so the "U" glyph appears
@@ -75,7 +75,7 @@ pub fn spawn_update_check(app: &tauri::AppHandle) {
                     *app.state::<AppState>()
                         .available_update
                         .lock()
-                        .expect("available_update poisoned") = None;
+                        .unwrap_or_else(|e| e.into_inner()) = None;
                 }
                 Err(_) => {}
             }

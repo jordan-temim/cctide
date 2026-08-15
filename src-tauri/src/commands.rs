@@ -2,8 +2,7 @@
 //! domain modules. No business logic here; only orchestration and serialization.
 
 use crate::state::{now_ts, refresh_cache, refresh_system, refreshed_points, AppState};
-use crate::tick::do_tick;
-use crate::{config, context, memory, outcome, usage};
+use crate::{config, context, memory, outcome, tick, usage};
 
 // ---------------------------------------------------------------------------
 // Panel data — single command that refreshes everything once and returns all
@@ -44,7 +43,7 @@ pub fn get_panel_data(state: tauri::State<AppState>, project_filter: Option<Stri
     let cfg = state
         .config_cache
         .lock()
-        .expect("config_cache poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .clone();
 
     refresh_cache(&state);
@@ -53,8 +52,8 @@ pub fn get_panel_data(state: tauri::State<AppState>, project_filter: Option<Stri
     let now = now_ts();
 
     // Hold both locks for the remainder of the reads so data is consistent.
-    let cache = state.cache.lock().expect("cache poisoned");
-    let sys = state.system.lock().expect("system poisoned");
+    let cache = state.cache.lock().unwrap_or_else(|e| e.into_inner());
+    let sys = state.system.lock().unwrap_or_else(|e| e.into_inner());
 
     // Gauges always use all projects; chart respects the filter.
     let all_points = cache.all_points();
@@ -66,8 +65,8 @@ pub fn get_panel_data(state: tauri::State<AppState>, project_filter: Option<Stri
     let weekly_start = weekly.week_start.unwrap_or(now - 7 * 86_400);
     let projects = cache.project_cwds_in_window(weekly_start, now);
 
-    let chart_points = match &project_filter {
-        Some(cwd) => cache.points_for_project(cwd),
+    let chart_points: std::sync::Arc<[crate::scan::Point]> = match &project_filter {
+        Some(cwd) => cache.points_for_project(cwd).into(),
         None => all_points,
     };
 
@@ -84,13 +83,14 @@ pub fn get_panel_data(state: tauri::State<AppState>, project_filter: Option<Stri
         use chrono::{Local, TimeZone};
         usage::daily_buckets(&chart_points, ws, now)
             .into_iter()
-            .map(|(day_ts, by_model, cost_usd, breakdown)| {
+            .map(|bucket| {
                 let label = Local
-                    .timestamp_opt(day_ts, 0)
+                    .timestamp_opt(bucket.day_start, 0)
                     .single()
                     .map(|d| d.format("%a").to_string())
                     .unwrap_or_else(|| "?".to_string());
-                let mut series: Vec<ModelSeries> = by_model
+                let mut series: Vec<ModelSeries> = bucket
+                    .by_model
                     .into_iter()
                     .map(|(model, weighted)| ModelSeries { model, weighted })
                     .collect();
@@ -98,9 +98,9 @@ pub fn get_panel_data(state: tauri::State<AppState>, project_filter: Option<Stri
                 DayBucket {
                     label,
                     by_model: series,
-                    is_today: day_ts == today_start,
-                    cost_usd,
-                    breakdown,
+                    is_today: bucket.day_start == today_start,
+                    cost_usd: bucket.cost_usd,
+                    breakdown: bucket.breakdown,
                 }
             })
             .collect()
@@ -111,9 +111,13 @@ pub fn get_panel_data(state: tauri::State<AppState>, project_filter: Option<Stri
     let update = state
         .available_update
         .lock()
-        .expect("available_update poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .clone();
-    let rtk = state.rtk_cache.lock().expect("rtk_cache poisoned").clone();
+    let rtk = state
+        .rtk_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
 
     PanelData {
         session,
@@ -142,7 +146,7 @@ pub fn get_outcomes(
         if let Some((computed_at, report)) = state
             .outcome_cache
             .lock()
-            .expect("outcome_cache poisoned")
+            .unwrap_or_else(|e| e.into_inner())
             .as_ref()
         {
             if now - computed_at < OUTCOME_TTL_SECS {
@@ -154,7 +158,7 @@ pub fn get_outcomes(
     let cfg = state
         .config_cache
         .lock()
-        .expect("config_cache poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .clone();
     refresh_cache(&state);
     // Same window as the rest of the Analytics tab; fall back to a rolling
@@ -167,7 +171,7 @@ pub fn get_outcomes(
     let all_spans = state
         .cache
         .lock()
-        .expect("cache poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .session_edit_spans(window_start, now);
     let spans: Vec<_> = match &project_filter {
         Some(cwd) => all_spans
@@ -178,7 +182,10 @@ pub fn get_outcomes(
     };
     let report = outcome::outcome_report(&spans, window_start, window_end.min(now));
     if project_filter.is_none() {
-        *state.outcome_cache.lock().expect("outcome_cache poisoned") = Some((now, report.clone()));
+        *state
+            .outcome_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some((now, report.clone()));
     }
     report
 }
@@ -192,12 +199,12 @@ pub fn get_memory(
     let cfg = state
         .config_cache
         .lock()
-        .expect("config_cache poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .clone();
     refresh_cache(&state);
     refresh_system(&state);
-    let cache = state.cache.lock().expect("cache poisoned");
-    let sys = state.system.lock().expect("system poisoned");
+    let cache = state.cache.lock().unwrap_or_else(|e| e.into_inner());
+    let sys = state.system.lock().unwrap_or_else(|e| e.into_inner());
     let mut cwds: Vec<String> =
         context::active_sessions(&cache, &cfg, &sys, &state.models, None, now_ts())
             .into_iter()
@@ -218,7 +225,7 @@ pub fn get_config(state: tauri::State<AppState>) -> config::Config {
     state
         .config_cache
         .lock()
-        .expect("config_cache poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .clone()
 }
 
@@ -228,32 +235,15 @@ pub fn get_config(state: tauri::State<AppState>) -> config::Config {
 // memory files whose paths are validated against the projects tree.
 // ---------------------------------------------------------------------------
 
-/// True if `pid` is declared by a `~/.claude/sessions/<pid>.json` file — the
-/// only processes this app is allowed to terminate.
-fn is_session_pid(pid: u32) -> bool {
-    let Some(dir) = context::sessions_dir() else {
-        return false;
-    };
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return false;
-    };
-    entries
-        .flatten()
-        .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("json"))
-        .filter_map(|e| std::fs::read_to_string(e.path()).ok())
-        .filter_map(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .any(|v| v.get("pid").and_then(|p| p.as_u64()) == Some(pid as u64))
-}
-
 /// Terminates a running Claude Code session process (graceful TERM where
 /// supported, hard kill otherwise). The pid must belong to a declared session.
 #[tauri::command]
 pub fn kill_session(state: tauri::State<AppState>, pid: u32) -> Result<(), String> {
-    if !is_session_pid(pid) {
+    if !context::is_session_pid(pid) {
         return Err("pid does not belong to a Claude Code session".into());
     }
     refresh_system(&state);
-    let sys = state.system.lock().expect("system poisoned");
+    let sys = state.system.lock().unwrap_or_else(|e| e.into_inner());
     let proc = sys
         .process(sysinfo::Pid::from_u32(pid))
         .ok_or("process already gone")?;
@@ -279,14 +269,16 @@ pub fn delete_session_transcript(
 ) -> Result<(), String> {
     refresh_cache(&state);
     let path = {
-        let cache = state.cache.lock().expect("cache poisoned");
+        let cache = state.cache.lock().unwrap_or_else(|e| e.into_inner());
         cache
             .jsonl_for_session(&session_id)
             .ok_or("transcript not found")?
     };
     std::fs::remove_file(&path).map_err(|e| format!("delete failed: {e}"))?;
-    refresh_cache(&state);
-    std::thread::spawn(move || do_tick(&app, &mut None, true));
+    // do_tick refreshes the cache itself, so this single spawned call both
+    // picks up the deletion and re-renders the icon — no need for a second
+    // explicit refresh_cache() here.
+    tick::trigger_tick(app);
     Ok(())
 }
 
@@ -294,31 +286,9 @@ pub fn delete_session_transcript(
 /// Returns the number of files removed.
 #[tauri::command]
 pub fn cleanup_stale_sessions(state: tauri::State<AppState>) -> Result<u32, String> {
-    let dir = context::sessions_dir().ok_or("no home directory")?;
-    let entries = std::fs::read_dir(&dir).map_err(|e| format!("read failed: {e}"))?;
     refresh_system(&state);
-    let sys = state.system.lock().expect("system poisoned");
-
-    let mut removed = 0u32;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|x| x.to_str()) != Some("json") {
-            continue;
-        }
-        let Some(pid) = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-            .and_then(|v| v.get("pid").and_then(|p| p.as_u64()))
-        else {
-            continue;
-        };
-        if sys.process(sysinfo::Pid::from_u32(pid as u32)).is_none()
-            && std::fs::remove_file(&path).is_ok()
-        {
-            removed += 1;
-        }
-    }
-    Ok(removed)
+    let sys = state.system.lock().unwrap_or_else(|e| e.into_inner());
+    context::cleanup_stale_sessions(&sys)
 }
 
 /// Deletes one project memory file. The path must resolve to a real `.md` file
@@ -326,45 +296,7 @@ pub fn cleanup_stale_sessions(state: tauri::State<AppState>) -> Result<u32, Stri
 /// sits next to it, its line referencing the file is dropped (best effort).
 #[tauri::command]
 pub fn delete_memory_file(path: String) -> Result<(), String> {
-    let canon = std::path::Path::new(&path)
-        .canonicalize()
-        .map_err(|_| "file not found")?;
-    if canon.extension().and_then(|x| x.to_str()) != Some("md") {
-        return Err("not a memory file".into());
-    }
-    let root = crate::scan::projects_dir()
-        .ok_or("no home directory")?
-        .canonicalize()
-        .map_err(|_| "projects dir not found")?;
-    let parent = canon.parent().ok_or("invalid path")?;
-    if !canon.starts_with(&root) || parent.file_name().and_then(|n| n.to_str()) != Some("memory") {
-        return Err("path is outside the memory directories".into());
-    }
-
-    let name = canon
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or("invalid path")?
-        .to_string();
-    std::fs::remove_file(&canon).map_err(|e| format!("delete failed: {e}"))?;
-
-    // Drop the deleted file's line from the MEMORY.md index, if present.
-    if name != "MEMORY.md" {
-        let index = parent.join("MEMORY.md");
-        if let Ok(text) = std::fs::read_to_string(&index) {
-            let _ = std::fs::write(&index, drop_index_lines(&text, &name));
-        }
-    }
-    Ok(())
-}
-
-/// Removes from a MEMORY.md index the lines whose markdown link targets the
-/// deleted file — i.e. lines containing `(<name>)`, the link-target part of
-/// `- [Title](<name>) — hook`.
-fn drop_index_lines(index: &str, name: &str) -> String {
-    let target = format!("({name})");
-    let kept: Vec<&str> = index.lines().filter(|l| !l.contains(&target)).collect();
-    kept.join("\n") + "\n"
+    memory::delete_memory_file(&path)
 }
 
 // ---------------------------------------------------------------------------
@@ -377,11 +309,11 @@ pub fn set_tracking(
     state: tauri::State<AppState>,
     enabled: bool,
 ) -> Result<(), String> {
-    let mut lock = state.config_cache.lock().expect("config_cache poisoned");
+    let mut lock = state.config_cache.lock().unwrap_or_else(|e| e.into_inner());
     lock.tracking_enabled = enabled;
     config::save(&lock)?;
     drop(lock);
-    std::thread::spawn(move || do_tick(&app, &mut None, true));
+    tick::trigger_tick(app);
     Ok(())
 }
 
@@ -392,12 +324,12 @@ pub fn set_notifications(
     enabled: bool,
     levels: Vec<f64>,
 ) -> Result<(), String> {
-    let mut lock = state.config_cache.lock().expect("config_cache poisoned");
+    let mut lock = state.config_cache.lock().unwrap_or_else(|e| e.into_inner());
     lock.notifications_enabled = enabled;
     lock.alert_levels = config::sanitize_levels(&levels);
     config::save(&lock)?;
     drop(lock);
-    std::thread::spawn(move || do_tick(&app, &mut None, true));
+    tick::trigger_tick(app);
     Ok(())
 }
 
@@ -412,7 +344,7 @@ pub fn set_calibration(
     let mut cfg = state
         .config_cache
         .lock()
-        .expect("config_cache poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .clone();
     let now = now_ts();
 
@@ -455,46 +387,7 @@ pub fn set_calibration(
     }
 
     config::save(&cfg)?;
-    *state.config_cache.lock().expect("config_cache poisoned") = cfg;
-    std::thread::spawn(move || do_tick(&app, &mut None, true));
+    *state.config_cache.lock().unwrap_or_else(|e| e.into_inner()) = cfg;
+    tick::trigger_tick(app);
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::drop_index_lines;
-
-    #[test]
-    fn drop_index_lines_removes_only_the_target_link() {
-        let index = "# Memory Index\n\n\
-            - [Foo](foo.md) — about foo\n\
-            - [Bar](bar.md) — about bar\n";
-        let out = drop_index_lines(index, "foo.md");
-        assert!(!out.contains("foo.md"));
-        assert!(out.contains("(bar.md)"));
-        assert!(out.contains("# Memory Index"));
-    }
-
-    #[test]
-    fn drop_index_lines_does_not_match_suffixed_names() {
-        // `(foo.md)` must not match `(bar-foo.md)` — the opening paren anchors
-        // the link target's start.
-        let index = "- [Bar foo](bar-foo.md) — composite name\n";
-        let out = drop_index_lines(index, "foo.md");
-        assert!(out.contains("(bar-foo.md)"));
-    }
-
-    #[test]
-    fn drop_index_lines_no_match_keeps_text_intact() {
-        let index = "- [Foo](foo.md) — hook\n";
-        assert_eq!(drop_index_lines(index, "missing.md"), index);
-    }
-
-    #[test]
-    fn drop_index_lines_mention_without_link_is_kept() {
-        // A plain-text mention of the name is not a link target → kept.
-        let index = "- [Other](other.md) — see also foo.md\n";
-        let out = drop_index_lines(index, "foo.md");
-        assert!(out.contains("(other.md)"));
-    }
 }

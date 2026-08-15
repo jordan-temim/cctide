@@ -3,18 +3,19 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
 
-import { $, updateLastUpdated } from "./utils";
+import { $, updateLastUpdated, setupCollapsibles } from "./utils";
 import { renderUsage } from "./tab-usage";
-import { renderSessions, setupSessions, loadMemory } from "./tab-sessions";
+import { renderSessions, setupSessions, SESSIONS_COLLAPSIBLES } from "./tab-sessions";
 import { setupCalibration, setupNotifications } from "./tab-settings";
 import {
   renderChart,
   renderBreakdownChart,
   renderCostChart,
-  loadOutcomes,
+  refreshOutcomesIfOpen,
   updateProjectFilter,
   getProjectFilter,
   setupProjectFilter,
+  ANALYTICS_COLLAPSIBLES,
 } from "./tab-analytics";
 import { renderRtk } from "./tab-extras";
 import { renderUpdateBanner, setupUpdate } from "./update";
@@ -47,22 +48,8 @@ function setupTabs() {
       document.getElementById(`tab-${tab.dataset.tab}`)?.classList.remove("hidden");
       // Outcomes is open by default; load it lazily when the tab is first shown
       // (the section's own onOpen only fires on collapse toggle).
-      if (tab.dataset.tab === "analytics" &&
-          !$<HTMLElement>("analytics-outcomes-body").classList.contains("hidden")) {
-        void loadOutcomes();
-      }
+      if (tab.dataset.tab === "analytics") refreshOutcomesIfOpen();
     });
-  });
-}
-
-function setupCollapse(toggleId: string, bodyId: string, onOpen?: () => void) {
-  const toggle = $<HTMLButtonElement>(toggleId);
-  const body = $<HTMLElement>(bodyId);
-  toggle.addEventListener("click", () => {
-    const opening = body.classList.contains("hidden");
-    body.classList.toggle("hidden");
-    toggle.querySelector(".chev")?.classList.toggle("open", opening);
-    if (opening && onOpen) onOpen();
   });
 }
 
@@ -87,8 +74,16 @@ function setupTracking(cfg: Config) {
   toggle.checked = cfg.tracking_enabled ?? true;
   syncLabel();
   toggle.addEventListener("change", async () => {
+    // Optimistic UI update; revert + surface the error if the backend call fails.
+    const desired = toggle.checked;
     syncLabel();
-    await invoke("set_tracking", { enabled: toggle.checked });
+    try {
+      await invoke("set_tracking", { enabled: desired });
+    } catch (e) {
+      console.error("set_tracking failed:", e);
+      toggle.checked = !desired;
+      syncLabel();
+    }
   });
 }
 
@@ -97,17 +92,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   setupUpdate();
   setupTabs();
   setupSessions(refresh);
-  setupCollapse("sessions-toggle", "sessions-body");
-  setupCollapse("memory-toggle", "memory-body", loadMemory);
-  setupCollapse("analytics-models-toggle", "analytics-models-body");
-  setupCollapse("analytics-breakdown-toggle", "analytics-breakdown-body");
-  setupCollapse("analytics-cost-toggle", "analytics-cost-body");
-  setupCollapse("analytics-outcomes-toggle", "analytics-outcomes-body", () => void loadOutcomes());
+  setupCollapsibles([...SESSIONS_COLLAPSIBLES, ...ANALYTICS_COLLAPSIBLES]);
   setupProjectFilter(async () => {
     await refresh();
-    if (!$<HTMLElement>("analytics-outcomes-body").classList.contains("hidden")) {
-      void loadOutcomes();
-    }
+    refreshOutcomesIfOpen();
   });
   const notifLabel = document.getElementById("notif-section-label");
   if (notifLabel) notifLabel.textContent = "macOS notifications";

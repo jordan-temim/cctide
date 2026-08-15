@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nextWeeklyReset, entrypointShort, modelShort, timeAgo } from "./utils";
+import { nextWeeklyReset, entrypointShort, modelShort, timeAgo, formatOutcomePercent } from "./utils";
 
 const WEEK_MS = 7 * 24 * 3600 * 1000;
 const FMT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
@@ -101,5 +101,20 @@ describe("timeAgo", () => {
 
   it("clamps future timestamps to 'just now'", () => {
     expect(at(-120)).toBe("just now");
+  });
+});
+
+describe("formatOutcomePercent", () => {
+  it("shows '<1%' for anything strictly between 0 and 0.5", () => {
+    expect(formatOutcomePercent(0.1)).toBe("<1%");
+    expect(formatOutcomePercent(0.49)).toBe("<1%");
+  });
+
+  it("rounds to the nearest percent otherwise", () => {
+    expect(formatOutcomePercent(0)).toBe("0%");
+    expect(formatOutcomePercent(0.5)).toBe("1%");
+    expect(formatOutcomePercent(12.4)).toBe("12%");
+    expect(formatOutcomePercent(12.6)).toBe("13%");
+    expect(formatOutcomePercent(100)).toBe("100%");
   });
 });

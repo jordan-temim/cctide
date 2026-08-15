@@ -1,7 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import { $, fmt, modelLabel } from "./utils";
+import { $, fmt, modelLabel, formatOutcomePercent, MODEL_FAMILIES, type CollapsibleSpec } from "./utils";
 import { createProjectFilter, type ProjectFilter } from "./project-filter";
+import {
+  PAD_L,
+  PAD_TOP,
+  CHART_W,
+  createChartSvg,
+  drawDayLabels,
+  buildLegend,
+  sortModelsByFamily,
+  type DayLabel,
+} from "./chart-utils";
 import type { DayBucket, OutcomeReport } from "./types";
 
 const MODEL_COLORS: Record<string, string> = {
@@ -13,8 +23,8 @@ const MODEL_COLORS: Record<string, string> = {
 const EXTRA_COLORS = ["#9b59b6", "#e67e22", "#1abc9c", "#e74c3c"];
 
 export function modelColor(model: string): string {
-  for (const [key, color] of Object.entries(MODEL_COLORS)) {
-    if (model.includes(key)) return color;
+  for (const key of MODEL_FAMILIES) {
+    if (model.includes(key)) return MODEL_COLORS[key];
   }
   let h = 0;
   for (const c of model) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
@@ -32,10 +42,7 @@ export function renderChart(buckets: DayBucket[]) {
     return;
   }
 
-  const W = 356, PAD_L = 8, PAD_R = 8, PAD_TOP = 8, PAD_B = 16;
-  const CHART_W = W - PAD_L - PAD_R;
   const CHART_H = 72;
-  const H = CHART_H + PAD_TOP + PAD_B;
   const n = buckets.length;
 
   const modelSet = new Set<string>();
@@ -43,13 +50,10 @@ export function renderChart(buckets: DayBucket[]) {
     for (const m of b.by_model)
       if (m.model && !m.model.startsWith("<")) modelSet.add(m.model);
 
-  const MODEL_ORDER = ["haiku", "sonnet", "opus", "fable"];
-  const models = Array.from(modelSet).sort((a, b) => {
-    const ai = MODEL_ORDER.findIndex((k) => a.includes(k));
-    const bi = MODEL_ORDER.findIndex((k) => b.includes(k));
-    if (ai !== bi) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
-    return a.localeCompare(b);
-  });
+  // Display order: least to most "premium" — the reverse of MODEL_FAMILIES,
+  // which is ordered for the substring-match scan (modelColor, modelShort).
+  const MODEL_ORDER = [...MODEL_FAMILIES].reverse();
+  const models = sortModelsByFamily(Array.from(modelSet), MODEL_ORDER);
 
   const series = new Map<string, number[]>();
   for (const m of models) {
@@ -64,9 +68,7 @@ export function renderChart(buckets: DayBucket[]) {
   const yOf = (v: number) => PAD_TOP + CHART_H - (v / maxVal) * CHART_H;
 
   const svgNS = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(svgNS, "svg");
-  svg.setAttribute("width", "100%");
-  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const { svg, H } = createChartSvg(CHART_H);
 
   const todayIdx = buckets.findIndex((b) => b.is_today);
   if (todayIdx >= 0) {
@@ -109,36 +111,20 @@ export function renderChart(buckets: DayBucket[]) {
     }
   }
 
-  for (let i = 0; i < buckets.length; i++) {
-    const text = document.createElementNS(svgNS, "text");
-    text.setAttribute("x", xOf(i).toFixed(1));
-    text.setAttribute("y", (H - 3).toFixed(1));
-    text.setAttribute("text-anchor", "middle");
-    text.setAttribute("font-size", "9");
-    text.setAttribute("fill", buckets[i].is_today ? "var(--accent)" : "var(--muted)");
-    text.setAttribute("font-weight", buckets[i].is_today ? "600" : "normal");
-    text.textContent = buckets[i].label;
-    svg.appendChild(text);
-  }
+  const dayLabels: DayLabel[] = buckets.map((b, i) => ({
+    x: xOf(i),
+    text: b.label,
+    isToday: b.is_today,
+  }));
+  drawDayLabels(svg, H, dayLabels);
 
   container.appendChild(svg);
 
   if (models.length > 1) {
-    const legend = document.createElement("div");
-    legend.className = "chart-legend";
-    for (const m of models) {
-      const item = document.createElement("span");
-      item.className = "chart-legend-item";
-      const dot = document.createElement("span");
-      dot.className = "chart-legend-dot";
-      dot.style.background = modelColor(m);
-      const lbl = document.createElement("span");
-      lbl.textContent = modelLabel(m);
-      item.appendChild(dot);
-      item.appendChild(lbl);
-      legend.appendChild(item);
-    }
-    container.appendChild(legend);
+    buildLegend(
+      container,
+      models.map((m) => ({ color: modelColor(m), label: modelLabel(m) })),
+    );
   }
 }
 
@@ -158,10 +144,7 @@ export function renderBreakdownChart(buckets: DayBucket[]) {
     return;
   }
 
-  const W = 356, PAD_L = 8, PAD_R = 8, PAD_TOP = 8, PAD_B = 16;
-  const CHART_W = W - PAD_L - PAD_R;
   const CHART_H = 60;
-  const H = CHART_H + PAD_TOP + PAD_B;
   const n = buckets.length;
   const colW = CHART_W / n;
   const GAP = 3;
@@ -174,9 +157,7 @@ export function renderBreakdownChart(buckets: DayBucket[]) {
   const colCx = (i: number) => PAD_L + (i + 0.5) * colW;
 
   const svgNS = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(svgNS, "svg");
-  svg.setAttribute("width", "100%");
-  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const { svg, H } = createChartSvg(CHART_H);
 
   for (let i = 0; i < buckets.length; i++) {
     const b = buckets[i];
@@ -223,39 +204,20 @@ export function renderBreakdownChart(buckets: DayBucket[]) {
       svg.appendChild(hit);
     }
 
-    const text = document.createElementNS(svgNS, "text");
-    text.setAttribute("x", cx.toFixed(1));
-    text.setAttribute("y", (H - 3).toFixed(1));
-    text.setAttribute("text-anchor", "middle");
-    text.setAttribute("font-size", "9");
-    text.setAttribute("fill", b.is_today ? "var(--accent)" : "var(--muted)");
-    text.setAttribute("font-weight", b.is_today ? "600" : "normal");
-    text.textContent = b.label;
-    svg.appendChild(text);
   }
+
+  drawDayLabels(
+    svg, H,
+    buckets.map((b, i) => ({ x: colCx(i), text: b.label, isToday: b.is_today })),
+  );
 
   container.appendChild(svg);
 
-  // Legend
-  const legend = document.createElement("div");
-  legend.className = "chart-legend";
-  for (const [label, color] of [
-    ["Output", "var(--accent)"],
-    ["Cache write", "var(--ok)"],
-    ["Input", "var(--neutral)"],
-  ] as [string, string][]) {
-    const item = document.createElement("span");
-    item.className = "chart-legend-item";
-    const dot = document.createElement("span");
-    dot.className = "chart-legend-dot";
-    dot.style.background = color;
-    const lbl = document.createElement("span");
-    lbl.textContent = label;
-    item.appendChild(dot);
-    item.appendChild(lbl);
-    legend.appendChild(item);
-  }
-  container.appendChild(legend);
+  buildLegend(container, [
+    { label: "Output", color: "var(--accent)" },
+    { label: "Cache write", color: "var(--ok)" },
+    { label: "Input", color: "var(--neutral)" },
+  ]);
 }
 
 // --- Outcomes: fate of each session's edits, classified backend-side ---
@@ -337,7 +299,7 @@ export function renderOutcomes(report: OutcomeReport) {
 
     const pct = document.createElement("span");
     pct.className = "outcome-pct";
-    pct.textContent = c.percent > 0 && c.percent < 0.5 ? "<1%" : `${Math.round(c.percent)}%`;
+    pct.textContent = formatOutcomePercent(c.percent);
 
     const note = document.createElement("span");
     note.className = "outcome-note";
@@ -392,6 +354,25 @@ export async function loadOutcomes() {
   );
 }
 
+/** Reloads Outcomes only if its collapsible section is currently open — the
+ * section's own onOpen only fires on the collapse toggle, so anything else
+ * that can change what Outcomes should show (switching to the Analytics tab,
+ * changing the project filter) needs to re-check and reload explicitly. */
+export function refreshOutcomesIfOpen() {
+  if (!$<HTMLElement>("analytics-outcomes-body").classList.contains("hidden")) {
+    void loadOutcomes();
+  }
+}
+
+// Collapsible sections owned by this tab; aggregated by main.ts alongside
+// other tabs' lists and wired via utils.ts's setupCollapsibles().
+export const ANALYTICS_COLLAPSIBLES: CollapsibleSpec[] = [
+  { toggleId: "analytics-models-toggle", bodyId: "analytics-models-body" },
+  { toggleId: "analytics-breakdown-toggle", bodyId: "analytics-breakdown-body" },
+  { toggleId: "analytics-cost-toggle", bodyId: "analytics-cost-body" },
+  { toggleId: "analytics-outcomes-toggle", bodyId: "analytics-outcomes-body", onOpen: () => void loadOutcomes() },
+];
+
 export function renderCostChart(buckets: DayBucket[]) {
   const container = $<HTMLDivElement>("cost-chart-container");
   container.innerHTML = "";
@@ -408,10 +389,7 @@ export function renderCostChart(buckets: DayBucket[]) {
     return;
   }
 
-  const W = 356, PAD_L = 8, PAD_R = 8, PAD_TOP = 8, PAD_B = 16;
-  const CHART_W = W - PAD_L - PAD_R;
   const CHART_H = 60;
-  const H = CHART_H + PAD_TOP + PAD_B;
   const n = buckets.length;
   const colW = CHART_W / n;
   const GAP = 3;
@@ -421,9 +399,7 @@ export function renderCostChart(buckets: DayBucket[]) {
   const colCx = (i: number) => PAD_L + (i + 0.5) * colW;
 
   const svgNS = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(svgNS, "svg");
-  svg.setAttribute("width", "100%");
-  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const { svg, H } = createChartSvg(CHART_H);
 
   for (let i = 0; i < buckets.length; i++) {
     const b = buckets[i];
@@ -446,17 +422,12 @@ export function renderCostChart(buckets: DayBucket[]) {
     title.textContent = `${b.label}: $${b.cost_usd.toFixed(2)}`;
     rect.appendChild(title);
     svg.appendChild(rect);
-
-    const text = document.createElementNS(svgNS, "text");
-    text.setAttribute("x", cx.toFixed(1));
-    text.setAttribute("y", (H - 3).toFixed(1));
-    text.setAttribute("text-anchor", "middle");
-    text.setAttribute("font-size", "9");
-    text.setAttribute("fill", b.is_today ? "var(--accent)" : "var(--muted)");
-    text.setAttribute("font-weight", b.is_today ? "600" : "normal");
-    text.textContent = b.label;
-    svg.appendChild(text);
   }
+
+  drawDayLabels(
+    svg, H,
+    buckets.map((b, i) => ({ x: colCx(i), text: b.label, isToday: b.is_today })),
+  );
 
   container.appendChild(svg);
 }

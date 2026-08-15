@@ -62,8 +62,11 @@ pub struct OutcomeReport {
 }
 
 /// Runs a read-only git subcommand in `dir`; `None` on any failure or timeout.
+/// On timeout the child is killed explicitly so it doesn't leak as an orphan
+/// process — only its stdout handle is moved into the reader thread, `child`
+/// itself stays owned here so it can be killed and reaped.
 fn git(dir: &str, args: &[&str]) -> Option<String> {
-    let child = Command::new("git")
+    let mut child = Command::new("git")
         .arg("-C")
         .arg(dir)
         .args(args)
@@ -71,15 +74,32 @@ fn git(dir: &str, args: &[&str]) -> Option<String> {
         .stderr(std::process::Stdio::null())
         .spawn()
         .ok()?;
+
+    let mut stdout = child.stdout.take();
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let _ = tx.send(child.wait_with_output());
+        use std::io::Read;
+        let mut buf = Vec::new();
+        if let Some(out) = stdout.as_mut() {
+            let _ = out.read_to_end(&mut buf);
+        }
+        let _ = tx.send(buf);
     });
-    let out = rx.recv_timeout(GIT_TIMEOUT).ok()?.ok()?;
-    if !out.status.success() {
+
+    let buf = match rx.recv_timeout(GIT_TIMEOUT) {
+        Ok(buf) => buf,
+        Err(_) => {
+            // Timed out: kill and reap the child instead of leaking it.
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+    };
+    let status = child.wait().ok()?;
+    if !status.success() {
         return None;
     }
-    Some(String::from_utf8_lossy(&out.stdout).into_owned())
+    Some(String::from_utf8_lossy(&buf).into_owned())
 }
 
 /// Repo root for a working directory, if it is inside a git repo.

@@ -47,12 +47,16 @@ export function modelLabel(m: string): string {
   return m.replace(/^claude-/, "").replace(/-\d{8}$/, "");
 }
 
+// Canonical model family list, matched by substring against model ids.
+// Order matters for the scan (first match wins) — also the source of truth
+// for MODEL_COLORS' key order and the chart display order in tab-analytics.ts.
+export const MODEL_FAMILIES = ["fable", "opus", "sonnet", "haiku"] as const;
+
 export function modelShort(m: string | null): string {
   if (!m) return "?";
-  if (m.includes("fable")) return "Fable";
-  if (m.includes("opus")) return "Opus";
-  if (m.includes("sonnet")) return "Sonnet";
-  if (m.includes("haiku")) return "Haiku";
+  for (const fam of MODEL_FAMILIES) {
+    if (m.includes(fam)) return fam[0].toUpperCase() + fam.slice(1);
+  }
   return m;
 }
 
@@ -103,6 +107,36 @@ export function pct(id: string): number | null {
   const n = parseFloat(v);
   if (!Number.isFinite(n)) return null;
   return Math.max(0, Math.min(100, n));
+}
+
+// Outcome-category percent label: sub-0.5% rounds to "0%" which reads as
+// "nothing happened", so anything strictly between 0 and 0.5 shows "<1%".
+export function formatOutcomePercent(percent: number): string {
+  return percent > 0 && percent < 0.5 ? "<1%" : `${Math.round(percent)}%`;
+}
+
+export interface CollapsibleSpec {
+  toggleId: string;
+  bodyId: string;
+  onOpen?: () => void;
+}
+
+// Wires a toggle button + collapsible body pair (chevron rotation, optional
+// lazy-load callback fired only when opening). Each tab module owns its own
+// list of `CollapsibleSpec`s; main.ts just aggregates and wires them all.
+export function setupCollapse(toggleId: string, bodyId: string, onOpen?: () => void) {
+  const toggle = $<HTMLButtonElement>(toggleId);
+  const body = $<HTMLElement>(bodyId);
+  toggle.addEventListener("click", () => {
+    const opening = body.classList.contains("hidden");
+    body.classList.toggle("hidden");
+    toggle.querySelector(".chev")?.classList.toggle("open", opening);
+    if (opening && onOpen) onOpen();
+  });
+}
+
+export function setupCollapsibles(specs: CollapsibleSpec[]) {
+  for (const s of specs) setupCollapse(s.toggleId, s.bodyId, s.onOpen);
 }
 
 export function clampInput(id: string) {

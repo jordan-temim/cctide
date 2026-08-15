@@ -7,7 +7,7 @@ use tauri::Emitter;
 
 use tauri::Manager;
 
-use crate::state::{now_ts, refreshed_points, AppState};
+use crate::state::{now_ts, refreshed_points, AppState, TRAY_ICON_ID};
 use crate::update_svc::UPDATE_AVAILABLE;
 use crate::{config, icon, rtk, usage};
 
@@ -28,7 +28,7 @@ pub fn do_tick(
     let cfg = state
         .config_cache
         .lock()
-        .expect("config_cache poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .clone();
 
     if !cfg.tracking_enabled {
@@ -42,7 +42,7 @@ pub fn do_tick(
                 shimmer_pos: None,
                 update_available: upd,
             });
-            if let Some(tray) = app.tray_by_id("cctide-tray") {
+            if let Some(tray) = app.tray_by_id(TRAY_ICON_ID) {
                 let _ = tray.set_icon(Some(tauri::image::Image::new_owned(
                     rendered.rgba,
                     rendered.width,
@@ -72,9 +72,9 @@ pub fn do_tick(
     state
         .notify_state
         .lock()
-        .expect("notify_state poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .check(app, &cfg, &session, &weekly);
-    *state.rtk_cache.lock().expect("rtk_cache poisoned") = rtk::savings();
+    *state.rtk_cache.lock().unwrap_or_else(|e| e.into_inner()) = rtk::savings();
 
     app.emit("refresh", ()).ok();
 
@@ -98,7 +98,7 @@ pub fn do_tick(
                 shimmer_pos,
                 update_available,
             });
-            if let Some(tray) = app.tray_by_id("cctide-tray") {
+            if let Some(tray) = app.tray_by_id(TRAY_ICON_ID) {
                 let img =
                     tauri::image::Image::new_owned(rendered.rgba, rendered.width, rendered.height);
                 let _ = tray.set_icon(Some(img));
@@ -111,7 +111,7 @@ pub fn do_tick(
                 if !state
                     .config_cache
                     .lock()
-                    .expect("config_cache poisoned")
+                    .unwrap_or_else(|e| e.into_inner())
                     .tracking_enabled
                 {
                     break;
@@ -119,6 +119,14 @@ pub fn do_tick(
             }
         }
     }
+}
+
+/// Triggers one `do_tick` cycle on a background thread, so a mutation command
+/// (calibration, tracking, notifications, session delete) can return
+/// immediately while the icon/panel still refresh right away instead of
+/// waiting for the next scheduled tick.
+pub fn trigger_tick(app: tauri::AppHandle) {
+    std::thread::spawn(move || do_tick(&app, &mut None, true));
 }
 
 /// Spawns the background ticker thread. Reloads config from disk each cycle
@@ -129,7 +137,7 @@ pub fn start_ticker(app: tauri::AppHandle) {
         loop {
             {
                 let state = app.state::<AppState>();
-                *state.config_cache.lock().expect("config_cache poisoned") = config::load();
+                *state.config_cache.lock().unwrap_or_else(|e| e.into_inner()) = config::load();
             }
             do_tick(&app, &mut last_disabled_sig, true);
             // Fire the "update available" notification from here — the app is
@@ -142,7 +150,7 @@ pub fn start_ticker(app: tauri::AppHandle) {
                     state
                         .available_update
                         .lock()
-                        .expect("available_update poisoned")
+                        .unwrap_or_else(|e| e.into_inner())
                         .as_ref()
                         .map(|u| u.version.clone())
                 } else {
@@ -151,7 +159,7 @@ pub fn start_ticker(app: tauri::AppHandle) {
                 state
                     .notify_state
                     .lock()
-                    .expect("notify_state poisoned")
+                    .unwrap_or_else(|e| e.into_inner())
                     .check_update(&app, version.as_deref());
             }
             let shimmer_elapsed_ms = SHIMMER_FRAMES as u64 * SHIMMER_MS;
@@ -159,7 +167,7 @@ pub fn start_ticker(app: tauri::AppHandle) {
             let refresh_ms = state
                 .config_cache
                 .lock()
-                .expect("config_cache poisoned")
+                .unwrap_or_else(|e| e.into_inner())
                 .refresh_secs
                 .max(5)
                 * 1000;

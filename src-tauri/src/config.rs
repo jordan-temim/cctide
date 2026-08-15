@@ -110,27 +110,46 @@ pub fn config_path() -> Option<PathBuf> {
     Some(dirs::config_dir()?.join(APP_DIR).join("cctide.json"))
 }
 
-fn parse_config(text: &str) -> Config {
-    match serde_json::from_str::<Config>(text) {
-        Ok(mut cfg) => {
-            // Clamp refresh interval to 1–3600 seconds (1 second to 1 hour).
-            // Prevents tight loops (too fast) and stale data (too slow).
-            if cfg.refresh_secs == 0 {
-                cfg.refresh_secs = 60;
-            } else {
-                cfg.refresh_secs = cfg.refresh_secs.clamp(1, 3600);
-            }
-            cfg
+fn parse_config(text: &str) -> Result<Config, serde_json::Error> {
+    serde_json::from_str::<Config>(text).map(|mut cfg| {
+        // Clamp refresh interval to 1–3600 seconds (1 second to 1 hour).
+        // Prevents tight loops (too fast) and stale data (too slow).
+        if cfg.refresh_secs == 0 {
+            cfg.refresh_secs = 60;
+        } else {
+            cfg.refresh_secs = cfg.refresh_secs.clamp(1, 3600);
         }
-        Err(_) => Config::default(),
-    }
+        cfg
+    })
 }
 
 pub fn load() -> Config {
-    if let Some(text) = config_path().and_then(|p| std::fs::read_to_string(p).ok()) {
-        return parse_config(&text);
+    let Some(path) = config_path() else {
+        return Config::default();
+    };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Config::default();
+    };
+    match parse_config(&text) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            // Don't silently discard the user's calibration/settings: copy the
+            // unparseable file aside before falling back to defaults, so it
+            // can be inspected/recovered rather than lost outright.
+            eprintln!(
+                "cctide: config at {} failed to parse ({e}), resetting to defaults",
+                path.display()
+            );
+            let backup = path.with_extension("json.bak");
+            if let Err(e) = std::fs::copy(&path, &backup) {
+                eprintln!(
+                    "cctide: failed to back up unreadable config to {}: {e}",
+                    backup.display()
+                );
+            }
+            Config::default()
+        }
     }
-    Config::default()
 }
 
 /// Writes the config to disk atomically (write temp → rename) so concurrent
@@ -253,16 +272,13 @@ mod tests {
         let cfg: Config = serde_json::from_str(json).unwrap();
         // parse_config normalises 0 → 60
         let text = serde_json::to_string(&cfg).unwrap();
-        let parsed = super::parse_config(&text);
+        let parsed = super::parse_config(&text).unwrap();
         assert_eq!(parsed.refresh_secs, 60);
     }
 
     #[test]
     fn parse_config_invalid_json_returns_default() {
-        let cfg = super::parse_config("not valid json {{{");
-        assert_eq!(cfg.refresh_secs, 60);
-        assert_eq!(cfg.alert_levels, vec![33.0, 66.0, 90.0]);
-        assert!(cfg.notifications_enabled);
+        assert!(super::parse_config("not valid json {{{").is_err());
     }
 
     #[test]
@@ -276,7 +292,7 @@ mod tests {
             ..Default::default()
         };
         let json = serde_json::to_string(&original).unwrap();
-        let parsed = super::parse_config(&json);
+        let parsed = super::parse_config(&json).unwrap();
         let cal = parsed.session_calibration.unwrap();
         assert!((cal.percent - 42.0).abs() < 1e-9);
         assert!((cal.budget - 1234.5).abs() < 1e-9);
@@ -337,18 +353,18 @@ mod tests {
 
     #[test]
     fn parse_config_clamps_refresh_secs_above_max_to_3600() {
-        let cfg = super::parse_config(r#"{"refresh_secs": 7200}"#);
+        let cfg = super::parse_config(r#"{"refresh_secs": 7200}"#).unwrap();
         assert_eq!(cfg.refresh_secs, 3600);
     }
 
     #[test]
     fn parse_config_preserves_refresh_secs_at_valid_boundaries() {
-        let cfg1 = super::parse_config(r#"{"refresh_secs": 1}"#);
+        let cfg1 = super::parse_config(r#"{"refresh_secs": 1}"#).unwrap();
         assert_eq!(
             cfg1.refresh_secs, 1,
             "minimum valid value must be preserved"
         );
-        let cfg2 = super::parse_config(r#"{"refresh_secs": 3600}"#);
+        let cfg2 = super::parse_config(r#"{"refresh_secs": 3600}"#).unwrap();
         assert_eq!(
             cfg2.refresh_secs, 3600,
             "maximum valid value must be preserved"
@@ -378,7 +394,7 @@ mod tests {
         };
 
         let json = serde_json::to_string_pretty(&original).unwrap();
-        let parsed = super::parse_config(&json);
+        let parsed = super::parse_config(&json).unwrap();
 
         assert!(parsed.session_calibration.is_some());
         assert!(parsed.weekly_calibration.is_some());

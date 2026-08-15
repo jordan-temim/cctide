@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { $, fmt, shortCwd, modelShort, entrypointShort, colorClass, timeAgo } from "./utils";
+import { $, fmt, shortCwd, modelShort, entrypointShort, colorClass, timeAgo, type CollapsibleSpec } from "./utils";
 import { createProjectFilter, type ProjectFilter } from "./project-filter";
 import type { SessionUsage, SessionCtx, MemoryFile } from "./types";
 
@@ -250,6 +250,9 @@ export function renderSessions(usage5h: SessionUsage, sessions: SessionCtx[]) {
 }
 
 export async function loadMemory() {
+  // Don't wipe an armed memory-file delete prompt (e.g. a project-filter
+  // change firing loadMemory() while a confirm is in progress).
+  if (armedConfirms > 0) return;
   const body = $<HTMLDivElement>("memory-body");
   const selected = sessionFilter?.getValue() ?? null;
   const files = await invoke<MemoryFile[]>("get_memory", { projectFilter: selected });
@@ -284,10 +287,15 @@ export async function loadMemory() {
     const pre = document.createElement("pre");
     pre.className = "mem-content hidden";
     pre.textContent = f.content;
+    const warnEl = document.createElement("div");
+    warnEl.className = "warn-note hidden";
     confirmable(delSpan, "sure?", () => {
       invoke("delete_memory_file", { path: f.path })
         .then(() => loadMemory())
-        .catch(() => {});
+        .catch((e) => {
+          warnEl.textContent = String(e);
+          warnEl.classList.remove("hidden");
+        });
     });
     head.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
@@ -301,6 +309,14 @@ export async function loadMemory() {
     });
     item.appendChild(head);
     item.appendChild(pre);
+    item.appendChild(warnEl);
     body.appendChild(item);
   }
 }
+
+// Collapsible sections owned by this tab; aggregated by main.ts alongside
+// other tabs' lists and wired via utils.ts's setupCollapsibles().
+export const SESSIONS_COLLAPSIBLES: CollapsibleSpec[] = [
+  { toggleId: "sessions-toggle", bodyId: "sessions-body" },
+  { toggleId: "memory-toggle", bodyId: "memory-body", onOpen: loadMemory },
+];

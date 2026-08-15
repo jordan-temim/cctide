@@ -216,18 +216,17 @@ pub struct DayBreakdown {
     pub cache_write: f64,
 }
 
+/// One calendar day's worth of consumption, as returned by [`daily_buckets`].
+#[derive(Debug, Default)]
+pub struct DayBucketRaw {
+    pub day_start: i64,
+    pub by_model: std::collections::HashMap<String, f64>,
+    pub cost_usd: f64,
+    pub breakdown: DayBreakdown,
+}
+
 /// Returns 7 daily buckets, one per calendar day starting from `week_start`.
-/// Each entry is `(midnight_local_ts, per_model_weighted_sums, total_cost_usd, token_breakdown)`.
-pub fn daily_buckets(
-    points: &[Point],
-    week_start: i64,
-    now: i64,
-) -> Vec<(
-    i64,
-    std::collections::HashMap<String, f64>,
-    f64,
-    DayBreakdown,
-)> {
+pub fn daily_buckets(points: &[Point], week_start: i64, now: i64) -> Vec<DayBucketRaw> {
     use chrono::{Duration, Local, TimeZone};
     use std::collections::HashMap;
 
@@ -262,7 +261,12 @@ pub fn daily_buckets(
                 *by_model.entry(p.model.clone()).or_insert(0.0) += p.weighted;
             }
         }
-        buckets.push((day_start, by_model, cost_usd, breakdown));
+        buckets.push(DayBucketRaw {
+            day_start,
+            by_model,
+            cost_usd,
+            breakdown,
+        });
     }
     buckets
 }
@@ -628,9 +632,9 @@ mod tests {
 
         // Build one bucket via daily_buckets to learn what day_start[0] actually is.
         let empty_buckets = daily_buckets(&[], week_start, now);
-        let day0_start = empty_buckets[0].0;
-        let day1_start = empty_buckets[1].0;
-        let day2_start = empty_buckets[2].0;
+        let day0_start = empty_buckets[0].day_start;
+        let day1_start = empty_buckets[1].day_start;
+        let day2_start = empty_buckets[2].day_start;
 
         // Place points at noon of days 0, 1, 2 (guaranteed inside those buckets).
         let p0 = pt(day0_start + 43200, 10.0); // day 0 noon
@@ -641,7 +645,7 @@ mod tests {
         let points = vec![p0, p1a, p1b, p2];
         let buckets = daily_buckets(&points, week_start, now);
 
-        let total = |i: usize| -> f64 { buckets[i].1.values().sum::<f64>() };
+        let total = |i: usize| -> f64 { buckets[i].by_model.values().sum::<f64>() };
         assert!((total(0) - 10.0).abs() < 1e-9, "day 0");
         assert!((total(1) - 50.0).abs() < 1e-9, "day 1 sum");
         assert!((total(2) - 5.0).abs() < 1e-9, "day 2");
@@ -653,7 +657,7 @@ mod tests {
         let week_start = 1_736_078_400i64;
         let now = week_start + 7 * 86400;
         let empty_buckets = daily_buckets(&[], week_start, now);
-        let day0_start = empty_buckets[0].0;
+        let day0_start = empty_buckets[0].day_start;
 
         let points = vec![
             Point {
@@ -688,22 +692,22 @@ mod tests {
             },
         ];
         let buckets = daily_buckets(&points, week_start, now);
-        assert_eq!(buckets[0].1.len(), 1, "only real models");
-        assert!((buckets[0].1["claude-sonnet-4-6"] - 50.0).abs() < 1e-9);
+        assert_eq!(buckets[0].by_model.len(), 1, "only real models");
+        assert!((buckets[0].by_model["claude-sonnet-4-6"] - 50.0).abs() < 1e-9);
     }
 
     #[test]
     fn daily_buckets_excludes_future_points() {
         let week_start = 1_736_078_400i64;
         let empty_buckets = daily_buckets(&[], week_start, week_start + 7 * 86400);
-        let day3_start = empty_buckets[3].0;
+        let day3_start = empty_buckets[3].day_start;
 
         // now = noon of day 2 → day 3 point is in the future
         let now = day3_start - 3600;
         let future_pt = pt(day3_start + 43200, 99.0);
         let buckets = daily_buckets(&[future_pt], week_start, now);
         assert_eq!(
-            buckets[3].1.values().sum::<f64>(),
+            buckets[3].by_model.values().sum::<f64>(),
             0.0,
             "future point must not appear in day 3"
         );
@@ -713,19 +717,19 @@ mod tests {
     fn daily_buckets_point_on_day_boundary_goes_to_correct_day() {
         let week_start = 1_736_078_400i64;
         let empty_buckets = daily_buckets(&[], week_start, week_start + 7 * 86400);
-        let day1_start = empty_buckets[1].0;
+        let day1_start = empty_buckets[1].day_start;
 
         // Point exactly at day1_start belongs to day 1, not day 0.
         let now = week_start + 7 * 86400;
         let boundary_pt = pt(day1_start, 42.0);
         let buckets = daily_buckets(&[boundary_pt], week_start, now);
         assert_eq!(
-            buckets[0].1.values().sum::<f64>(),
+            buckets[0].by_model.values().sum::<f64>(),
             0.0,
             "day 0 must be empty"
         );
         assert!(
-            (buckets[1].1.values().sum::<f64>() - 42.0).abs() < 1e-9,
+            (buckets[1].by_model.values().sum::<f64>() - 42.0).abs() < 1e-9,
             "day 1 must contain boundary point"
         );
     }
@@ -861,7 +865,7 @@ mod tests {
         let week_start = 1_736_078_400i64;
         let now = week_start + 86400;
         let empty_buckets = daily_buckets(&[], week_start, now);
-        let day0_start = empty_buckets[0].0;
+        let day0_start = empty_buckets[0].day_start;
 
         let points = vec![
             Point {
@@ -897,7 +901,7 @@ mod tests {
         ];
 
         let buckets = daily_buckets(&points, week_start, now);
-        let day0_models = &buckets[0].1;
+        let day0_models = &buckets[0].by_model;
 
         assert_eq!(day0_models.len(), 2, "should have 2 models");
         assert!(

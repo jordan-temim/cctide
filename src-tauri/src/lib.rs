@@ -91,7 +91,7 @@ pub fn run() {
             let quit = MenuItem::with_id(app, "quit", "Quit cctide", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&quit])?;
 
-            TrayIconBuilder::with_id("cctide-tray")
+            TrayIconBuilder::with_id(state::TRAY_ICON_ID)
                 .icon(tray_icon)
                 .icon_as_template(true)
                 .tooltip("cctide")

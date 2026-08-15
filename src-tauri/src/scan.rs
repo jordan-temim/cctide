@@ -19,6 +19,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde_json::Value;
 use walkdir::WalkDir;
@@ -126,9 +127,24 @@ pub fn encode_cwd(cwd: &str) -> String {
 pub struct ScanCache {
     /// Per-file metadata + points. Points are deduped within each file.
     files: HashMap<PathBuf, CachedFile>,
-    /// Global deduplicated view: key → Point. Rebuilt by `refresh()` whenever
-    /// any file is reparsed or removed. Queried directly by all read methods.
-    points: HashMap<u64, Point>,
+    /// Global deduplicated view, rebuilt by `refresh()` whenever any file is
+    /// reparsed or removed. Kept behind an `Arc` so repeated reads (e.g.
+    /// `all_points()` called once per command) share the same allocation
+    /// instead of deep-cloning every point (and its owned `model` string) on
+    /// every call.
+    points: Arc<[Point]>,
+}
+
+/// Deduplicates points by `key`, keeping only the first occurrence seen for
+/// each key. This is the single shared dedup rule used by the global cache
+/// rebuild, per-project point queries, and per-session edit spans — `seen` is
+/// caller-provided so it can be scoped globally (`rebuild_points`,
+/// `points_for_project`) or per session group (`session_edit_spans`).
+fn dedup_points_by_key<'a>(
+    points: impl Iterator<Item = &'a Point>,
+    seen: &mut HashSet<u64>,
+) -> Vec<&'a Point> {
+    points.filter(|p| seen.insert(p.key)).collect()
 }
 
 /// Root directory of Claude Code projects.
@@ -310,8 +326,10 @@ fn parse_file(path: &Path, pricing: &Models) -> CachedFile {
         }
 
         // Quota weighting excludes cache reads — see models.rs for rationale.
-        let weighted = pricing.quota_units(&model, input, output, cache_5m, cache_1h);
-        let cost_usd = pricing.cost_usd(&model, input, output, cache_5m, cache_1h);
+        // Resolve the model entry once and reuse it for both computations.
+        let entry = pricing.entry_for(&model);
+        let weighted = Models::quota_units_for(entry, input, output, cache_5m, cache_1h);
+        let cost_usd = Models::cost_usd_for(entry, input, output, cache_5m, cache_1h);
         parsed.points.push(Point {
             ts,
             weighted,
@@ -387,20 +405,22 @@ impl ScanCache {
         }
     }
 
-    /// Rebuilds the deduplicated global point map from all cached files.
+    /// Rebuilds the deduplicated global point list from all cached files.
     /// Cross-file dedup: first file encountered for a given key wins.
     fn rebuild_points(&mut self) {
-        self.points.clear();
-        for file in self.files.values() {
-            for p in &file.points {
-                self.points.entry(p.key).or_insert_with(|| p.clone());
-            }
-        }
+        let mut seen: HashSet<u64> = HashSet::new();
+        let deduped: Vec<Point> =
+            dedup_points_by_key(self.files.values().flat_map(|f| f.points.iter()), &mut seen)
+                .into_iter()
+                .cloned()
+                .collect();
+        self.points = deduped.into();
     }
 
-    /// All deduplicated consumption points across every project.
-    pub fn all_points(&self) -> Vec<Point> {
-        self.points.values().cloned().collect()
+    /// All deduplicated consumption points across every project. Cheap: shares
+    /// the cached allocation via `Arc` rather than cloning every point.
+    pub fn all_points(&self) -> Arc<[Point]> {
+        Arc::clone(&self.points)
     }
 
     /// Last known context for a given session file.
@@ -518,11 +538,9 @@ impl ScanCache {
             }
             // Dedup points by key within the session (a sidechain response can
             // also surface in the parent file).
-            for p in pts {
-                if acc.seen.insert(p.key) {
-                    acc.ts.push(p.ts);
-                    acc.weighted += p.weighted;
-                }
+            for p in dedup_points_by_key(pts.into_iter(), &mut acc.seen) {
+                acc.ts.push(p.ts);
+                acc.weighted += p.weighted;
             }
             acc.edits.extend(eds);
         }
@@ -542,18 +560,15 @@ impl ScanCache {
     /// Deduped consumption points for one working directory (project filter).
     pub fn points_for_project(&self, cwd: &str) -> Vec<Point> {
         let mut seen: HashSet<u64> = HashSet::new();
-        let mut result = Vec::new();
-        for file in self.files.values() {
-            if file.cwd.as_deref() != Some(cwd) {
-                continue;
-            }
-            for p in &file.points {
-                if seen.insert(p.key) {
-                    result.push(p.clone());
-                }
-            }
-        }
-        result
+        let files = self
+            .files
+            .values()
+            .filter(|f| f.cwd.as_deref() == Some(cwd))
+            .flat_map(|f| f.points.iter());
+        dedup_points_by_key(files, &mut seen)
+            .into_iter()
+            .cloned()
+            .collect()
     }
 
     /// Sorted unique working directories that have at least one point in `[from, to]`.
@@ -774,7 +789,7 @@ mod tests {
         assert_eq!(cache.points.len(), 3);
         // Key 2 must be exactly one of the two candidates (20.0 from file1 or 99.0 from
         // file2). Which one wins depends on HashMap iteration order.
-        let key2 = cache.points[&2].weighted;
+        let key2 = cache.points.iter().find(|p| p.key == 2).unwrap().weighted;
         assert!(
             (key2 - 20.0).abs() < 1e-9 || (key2 - 99.0).abs() < 1e-9,
             "key 2 should be 20.0 or 99.0, got {key2}"

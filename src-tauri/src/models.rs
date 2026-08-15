@@ -159,13 +159,19 @@ impl Default for Models {
         models.insert("opus-4-8".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
         models.insert("opus-4-7".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
         models.insert("opus-4-6".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
+        models.insert("opus-4-5".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
         models.insert("opus-4-1".into(), entry(15.0, 75.0, 18.75, 30.0, std()));
         models.insert("opus".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
         // Sonnet 5 prices = standard rates ($3/$15) effective 2026-09-01;
         // introductory $2/$10 runs through 2026-08-31 (reference-only).
         models.insert("sonnet-5".into(), entry(3.0, 15.0, 3.75, 6.0, std()));
         models.insert("sonnet-4-6".into(), entry(3.0, 15.0, 3.75, 6.0, std()));
+        models.insert("sonnet-4-5".into(), entry(3.0, 15.0, 3.75, 6.0, std()));
         models.insert("sonnet".into(), entry(3.0, 15.0, 3.75, 6.0, std()));
+        models.insert(
+            "haiku-4-5".into(),
+            entry(1.0, 5.0, 1.25, 2.0, QuotaWeights::haiku()),
+        );
         models.insert(
             "haiku".into(),
             entry(1.0, 5.0, 1.25, 2.0, QuotaWeights::haiku()),
@@ -204,6 +210,12 @@ impl Models {
 
     /// Quota-weighted units for one assistant turn, using the empirical `quota`
     /// weights — **excluding cache reads** (never passed in; see module docs).
+    /// Convenience single-lookup form of [`Models::quota_units_for`]; production
+    /// code that also needs `cost_usd` for the same record should call
+    /// [`Models::entry_for`] once and use the `_for` variants instead (see
+    /// `scan.rs`). Kept for callers that only need one value, and exercised by
+    /// the tests below.
+    #[allow(dead_code)]
     pub fn quota_units(
         &self,
         model: &str,
@@ -212,14 +224,19 @@ impl Models {
         cache_write_5m: u64,
         cache_write_1h: u64,
     ) -> f64 {
-        let q = &self.entry_for(model).quota;
-        input as f64 * q.input
-            + output as f64 * q.output
-            + cache_write_5m as f64 * q.cache_write_5m
-            + cache_write_1h as f64 * q.cache_write_1h
+        Self::quota_units_for(
+            self.entry_for(model),
+            input,
+            output,
+            cache_write_5m,
+            cache_write_1h,
+        )
     }
 
     /// Dollar cost for one assistant turn (prices in $/MTok from models.json).
+    /// Convenience single-lookup form of [`Models::cost_usd_for`]; see the note
+    /// on [`Models::quota_units`].
+    #[allow(dead_code)]
     pub fn cost_usd(
         &self,
         model: &str,
@@ -228,11 +245,39 @@ impl Models {
         cache_5m: u64,
         cache_1h: u64,
     ) -> f64 {
-        let e = self.entry_for(model);
-        (input as f64 * e.input
-            + output as f64 * e.output
-            + cache_5m as f64 * e.cache_write_5m
-            + cache_1h as f64 * e.cache_write_1h)
+        Self::cost_usd_for(self.entry_for(model), input, output, cache_5m, cache_1h)
+    }
+
+    /// Quota-weighted units for one assistant turn, given an already-resolved
+    /// model entry. Use this (with a single [`Models::entry_for`] lookup) when
+    /// both quota units and cost are needed for the same record, to avoid
+    /// resolving the entry twice.
+    pub fn quota_units_for(
+        entry: &ModelEntry,
+        input: u64,
+        output: u64,
+        cache_write_5m: u64,
+        cache_write_1h: u64,
+    ) -> f64 {
+        let q = &entry.quota;
+        input as f64 * q.input
+            + output as f64 * q.output
+            + cache_write_5m as f64 * q.cache_write_5m
+            + cache_write_1h as f64 * q.cache_write_1h
+    }
+
+    /// Dollar cost for one assistant turn, given an already-resolved model entry.
+    pub fn cost_usd_for(
+        entry: &ModelEntry,
+        input: u64,
+        output: u64,
+        cache_5m: u64,
+        cache_1h: u64,
+    ) -> f64 {
+        (input as f64 * entry.input
+            + output as f64 * entry.output
+            + cache_5m as f64 * entry.cache_write_5m
+            + cache_1h as f64 * entry.cache_write_1h)
             / 1_000_000.0
     }
 

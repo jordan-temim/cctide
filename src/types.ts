@@ -48,7 +48,7 @@ export interface RtkSavings {
     total_saved: number;
     avg_savings_pct: number;
   };
-  weekly: { week_start: string; saved_tokens: number; savings_pct: number }[];
+  weekly: { week_start: string; week_end: string; saved_tokens: number; savings_pct: number }[];
 }
 
 export interface DayBucket {

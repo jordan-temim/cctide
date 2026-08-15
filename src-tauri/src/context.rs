@@ -88,6 +88,50 @@ pub fn sessions_dir() -> Option<PathBuf> {
     Some(dirs::home_dir()?.join(".claude").join("sessions"))
 }
 
+/// True if `pid` is declared by a `~/.claude/sessions/<pid>.json` file — the
+/// only processes the app is allowed to terminate.
+pub fn is_session_pid(pid: u32) -> bool {
+    let Some(dir) = sessions_dir() else {
+        return false;
+    };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries
+        .flatten()
+        .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("json"))
+        .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+        .filter_map(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .any(|v| v.get("pid").and_then(|p| p.as_u64()) == Some(pid as u64))
+}
+
+/// Removes `~/.claude/sessions/<pid>.json` files whose process is gone.
+/// Returns the number of files removed. `sys` must have been refreshed by the
+/// caller before this call.
+pub fn cleanup_stale_sessions(sys: &System) -> Result<u32, String> {
+    let dir = sessions_dir().ok_or("no home directory")?;
+    let entries = std::fs::read_dir(&dir).map_err(|e| format!("read failed: {e}"))?;
+
+    let mut removed = 0u32;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|x| x.to_str()) != Some("json") {
+            continue;
+        }
+        let Some(pid) = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            .and_then(|v| v.get("pid").and_then(|p| p.as_u64()))
+        else {
+            continue;
+        };
+        if sys.process(Pid::from_u32(pid as u32)).is_none() && std::fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
 /// Resolves the transcript a session should display: its own (matched by
 /// session id), else the cwd's most recent one (resumed sessions keep writing
 /// to the original conversation's file) — unless another live session owns
@@ -225,12 +269,19 @@ pub fn active_sessions(
         });
     }
 
-    // Deduplicate by session id (resume → multiple PIDs, same session). Distinct
-    // interactive sessions in the same cwd are kept separate: several tabs or
-    // terminals on one project are all real sessions the user wants to see.
+    let mut out = dedup_sessions_by_id(out);
+    out.sort_by_key(|s| std::cmp::Reverse(s.context_tokens));
+    out
+}
+
+/// Deduplicates sessions by id (resume → multiple PIDs, same session id),
+/// keeping the entry with the richest context. Distinct interactive sessions
+/// in the same cwd are kept separate: several tabs or terminals on one
+/// project are all real sessions the user wants to see.
+fn dedup_sessions_by_id(sessions: Vec<SessionCtx>) -> Vec<SessionCtx> {
     let mut by_session: std::collections::HashMap<String, SessionCtx> =
         std::collections::HashMap::new();
-    for s in out {
+    for s in sessions {
         let entry = by_session
             .entry(s.session_id.clone())
             .or_insert_with(|| s.clone());
@@ -238,16 +289,12 @@ pub fn active_sessions(
             *entry = s;
         }
     }
-    let mut out: Vec<SessionCtx> = by_session.into_values().collect();
-
-    out.sort_by_key(|s| std::cmp::Reverse(s.context_tokens));
-    out
+    by_session.into_values().collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     fn ctx(sid: &str, cwd: &str, tokens: u64, limit: u64, percent: Option<f64>) -> SessionCtx {
         SessionCtx {
@@ -267,18 +314,11 @@ mod tests {
         }
     }
 
-    /// Mirrors the dedup logic in `active_sessions`.
+    // Tests below call `dedup_sessions_by_id` directly (the production
+    // function used by `active_sessions`) instead of hand-copying its logic,
+    // so they can't silently drift from actual behavior.
     fn dedup(sessions: Vec<SessionCtx>) -> Vec<SessionCtx> {
-        let mut by_session: HashMap<String, SessionCtx> = HashMap::new();
-        for s in sessions {
-            let entry = by_session
-                .entry(s.session_id.clone())
-                .or_insert_with(|| s.clone());
-            if s.context_tokens > entry.context_tokens {
-                *entry = s;
-            }
-        }
-        by_session.into_values().collect()
+        dedup_sessions_by_id(sessions)
     }
 
     #[test]
