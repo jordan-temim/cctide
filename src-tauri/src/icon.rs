@@ -199,7 +199,12 @@ mod tests {
     }
 
     fn opaque_count(r: &RenderedIcon) -> usize {
-        r.rgba.chunks_exact(4).filter(|px| px[3] > 0).count()
+        r.rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|px| px[3] > 0)
+            .count()
     }
 
     #[test]
