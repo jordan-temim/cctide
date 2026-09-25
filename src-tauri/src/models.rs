@@ -138,6 +138,10 @@ impl Default for Models {
         let std = QuotaWeights::default;
         let mut models = BTreeMap::new();
         models.insert(
+            "fable-5-1".into(),
+            entry(10.0, 50.0, 12.5, 20.0, QuotaWeights::fable()),
+        );
+        models.insert(
             "fable-5".into(),
             entry(10.0, 50.0, 12.5, 20.0, QuotaWeights::fable()),
         );
@@ -148,6 +152,10 @@ impl Default for Models {
         // Mythos 5 (limited availability): same $10/$50 tier as fable; quota is an
         // unverified estimate mirroring fable (no lab data yet).
         models.insert(
+            "mythos-5-1".into(),
+            entry(10.0, 50.0, 12.5, 20.0, QuotaWeights::fable()),
+        );
+        models.insert(
             "mythos-5".into(),
             entry(10.0, 50.0, 12.5, 20.0, QuotaWeights::fable()),
         );
@@ -155,6 +163,8 @@ impl Default for Models {
             "mythos".into(),
             entry(10.0, 50.0, 12.5, 20.0, QuotaWeights::fable()),
         );
+        // Opus 5.5: cheaper ($4/$20) but quota mirrors the opus line (no lab data yet).
+        models.insert("opus-5-5".into(), entry(4.0, 20.0, 5.0, 8.0, std()));
         models.insert("opus-5".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
         models.insert("opus-4-8".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
         models.insert("opus-4-7".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
@@ -162,9 +172,9 @@ impl Default for Models {
         models.insert("opus-4-5".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
         models.insert("opus-4-1".into(), entry(15.0, 75.0, 18.75, 30.0, std()));
         models.insert("opus".into(), entry(5.0, 25.0, 6.25, 10.0, std()));
-        // Sonnet 5 prices = standard rates ($3/$15) effective 2026-09-01;
-        // introductory $2/$10 runs through 2026-08-31 (reference-only).
-        models.insert("sonnet-5".into(), entry(3.0, 15.0, 3.75, 6.0, std()));
+        // Sonnet 5: the $2/$10 launch rate became standard (the planned
+        // 2026-09-01 increase to $3/$15 was cancelled). Reference-only.
+        models.insert("sonnet-5".into(), entry(2.0, 10.0, 2.5, 4.0, std()));
         models.insert("sonnet-4-6".into(), entry(3.0, 15.0, 3.75, 6.0, std()));
         models.insert("sonnet-4-5".into(), entry(3.0, 15.0, 3.75, 6.0, std()));
         models.insert("sonnet".into(), entry(3.0, 15.0, 3.75, 6.0, std()));
@@ -527,6 +537,17 @@ mod tests {
         assert!((fable_out / sonnet_out - 3.3).abs() < 1e-9);
         let fable_cc = models.quota_units("claude-fable-5", 0, 0, 0, 1000);
         assert!((fable_cc - 360.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn opus_5_5_gets_its_own_pricing_not_opus_5() {
+        // "opus-5" is a substring of "claude-opus-5-5"; the longer key must win.
+        for models in [m(), Models::default()] {
+            let e = models.entry_for("claude-opus-5-5");
+            assert!((e.input - 4.0).abs() < 1e-9);
+            assert!((e.output - 20.0).abs() < 1e-9);
+            assert!((models.entry_for("claude-opus-5").output - 25.0).abs() < 1e-9);
+        }
     }
 
     // --- cost_usd ---
